@@ -21,6 +21,7 @@
 #include <AzQtComponents/Components/DockTabWidget.h>
 #include <AzQtComponents/Components/StyledDockWidget.h>
 #include <AzToolsFramework/UI/PropertyEditor/PropertyEditorAPI.h>
+#include <AzToolsFramework/ComponentMode/EditorComponentModeBus.h>
 
 #include <QObject>
 #include <QVector>
@@ -229,7 +230,7 @@ private:
     bool RestoreLayout(const ViewLayoutState& state);
     void SaveStateToLayout(const ViewLayoutState& state, const QString& layoutName);
 
-#ifdef AZ_PLATFORM_APPLE
+#if AZ_TRAIT_OS_PLATFORM_APPLE
     QDockWidget* ShowFakeNonDockableDockWidget(AzQtComponents::StyledDockWidget* dockWidget, QtViewPane* pane);
 #endif
 
@@ -246,6 +247,10 @@ private:
 
     bool m_enableLegacyCryEntities;
     AzQtComponents::FancyDocking* m_advancedDockManager;
+
+    using EditorComponentModeNotificationBusImpl = AzToolsFramework::ComponentModeFramework::EditorComponentModeNotificationBusImpl;
+    EditorComponentModeNotificationBusImpl m_componentModeNotifications; /**< Helper for EditorComponentModeNotificationBus so 
+                                                                           *  QtViewPaneManager does not need to inherit directly from it. */
 };
 
 template<class TWidget>

@@ -1,6 +1,6 @@
 {
     "auto": {
-       "Include": [
+        "Include": [
             "Include/PhysX/EditorRigidBodyRequestBus.h"
         ],
         "Source/Components": [
@@ -11,7 +11,9 @@
             "Source/EditorTerrainComponent.cpp",
             "Source/EditorTerrainComponent.h",
             "Source/EditorSystemComponent.cpp",
-            "Source/EditorSystemComponent.h"
+            "Source/EditorSystemComponent.h",
+            "Source/EditorForceRegionComponent.cpp",
+            "Source/EditorForceRegionComponent.h"
         ],
         "Source/Pipeline": [
             "Source/Pipeline/MeshExporter.cpp",
@@ -43,6 +45,8 @@
             "Editor/CollisionGroupWidget.cpp",
             "Editor/CollisionGroupsWidget.h",
             "Editor/CollisionGroupsWidget.cpp",
+            "Editor/CollisionFilteringWidget.h",
+            "Editor/CollisionFilteringWidget.cpp",
             "Editor/PropertyTypes.h",
             "Editor/PropertyTypes.cpp",
             "Editor/MaterialIdWidget.h",
@@ -51,12 +55,16 @@
             "Editor/EditorClassConverters.h",
             "Editor/PvdWidget.h",
             "Editor/PvdWidget.cpp",
+            "Editor/DocumentationLinkWidget.h",
+            "Editor/DocumentationLinkWidget.cpp",
             "Editor/InertiaPropertyHandler.h",
             "Editor/InertiaPropertyHandler.cpp",
             "Editor/ConfigStringLineEditCtrl.h",
             "Editor/ConfigStringLineEditCtrl.cpp",
             "Editor/UniqueStringContainer.h",
-            "Editor/UniqueStringContainer.cpp"
+            "Editor/UniqueStringContainer.cpp",
+            "Editor/ComboBoxEditButtonPair.h",
+            "Editor/ComboBoxEditButtonPair.cpp"
         ]
     }
 }

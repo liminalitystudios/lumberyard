@@ -19,7 +19,9 @@ def build(bld):
         vs_filter       = 'Sandbox/Plugins',
         file_list       = 'maglevcontrolpanel.waf_files',
         platforms       = ['win', 'darwin'],
-        configurations  = ['debug', 'debug_test', 'profile', 'profile_test'],
+        configurations  = ['all'],
+        exclude_monolithic = True,
+        client_only     = True,
         use	            = ['AzFramework',
                            'EditorUI_QT',
                            'EditorCommon',
@@ -43,8 +45,10 @@ def build(bld):
                            bld.Path('Code/Sandbox/Plugins/EditorCommon'),
                            bld.Path('Code/CryEngine/CryCommon'),
                            bld.Path('Code/Sandbox/Plugins/EditorUI_QT'),
-                           bld.Path('Code/CryEngine/CryAction')],
-
+                           bld.Path('Code/CryEngine/CryAction'),
+                           bld.ThirdPartyPath('boost')
+                           ],
+        export_includes = [bld.ThirdPartyPath('boost')],
         defines         = ['QT_NO_DEBUG',
                            'QT_NO_EMIT',
                            'EDITOR_COMMON_IMPORTS'],

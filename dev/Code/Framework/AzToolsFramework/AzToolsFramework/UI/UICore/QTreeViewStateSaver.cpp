@@ -25,6 +25,7 @@ namespace AzToolsFramework
 {
     class QTreeViewStateSaverData
         : public AZ::UserSettings
+        , public TreeViewState
     {
     public:
         AZ_RTTI(QTreeViewStateSaverData, "{CA0FBE7A-232C-4595-9824-F4B5C50FA7B4}", AZ::UserSettings);
@@ -54,7 +55,7 @@ namespace AzToolsFramework
             AZ::SerializeContext* serialize = azrtti_cast<AZ::SerializeContext*>(context);
             if (serialize)
             {
-                serialize->Class<QTreeViewStateSaverData, AZ::UserSettings>()
+                serialize->Class<QTreeViewStateSaverData>()
                     ->Version(2)
                     ->Field("m_expandedElements", &QTreeViewStateSaverData::m_expandedElements)
                     ->Field("m_collapsedElements", &QTreeViewStateSaverData::m_collapsedElements)
@@ -114,7 +115,7 @@ namespace AzToolsFramework
             }
         }
 
-        void CaptureSnapshot(QTreeView* treeView)
+        void CaptureSnapshot(QTreeView* treeView) override
         {
             Q_ASSERT(treeView && treeView->model());
 
@@ -147,12 +148,10 @@ namespace AzToolsFramework
 
         static void ExpandRow(QTreeView* treeView, const QModelIndex& rowIdx)
         {
-            treeView->expand(rowIdx);
-        }
-
-        static void CollapseRow(QTreeView* treeView, const QModelIndex& rowIdx)
-        {
-            treeView->collapse(rowIdx);
+            if (!treeView->isExpanded(rowIdx))
+            {
+                treeView->expand(rowIdx);
+            }
         }
 
         static void SelectRow(QTreeView* treeView, const QModelIndex& rowIdx)
@@ -381,6 +380,11 @@ namespace AzToolsFramework
         }
     };
 
+    AZStd::unique_ptr<TreeViewState> TreeViewState::CreateTreeViewState()
+    {
+        return AZStd::make_unique<QTreeViewStateSaverData>();
+    }
+
     QTreeViewStateSaver::QTreeViewStateSaver(AZ::u32 storageID, QObject* pParent)
         : QObject(pParent)
         , m_data(AZ::UserSettings::CreateFind<QTreeViewStateSaverData>(storageID, AZ::UserSettings::CT_LOCAL))
@@ -578,7 +582,6 @@ namespace AzToolsFramework
             m_data->ApplySnapshot(m_attachedTree);
         }
     }
-
 
     void QTreeViewStateSaver::Reflect(AZ::ReflectContext* context)
     {

@@ -50,6 +50,11 @@ namespace AzQtComponents
         static void applySearchStyle(QLineEdit* lineEdit);
 
         /*!
+         * Removes the search icon from the left of the QLineEdit
+         */
+        static void removeSearchStyle(QLineEdit* lineEdit);
+
+        /*!
         * Uses only the stylesheet file values, does not draw borders
         */
         static void applyDefaultStyle(QLineEdit* lineEdit);
@@ -66,7 +71,10 @@ namespace AzQtComponents
 
     private:
         friend class Style;
-        static QPointer<LineEditWatcher> m_lineEditWatcher;
+        AZ_PUSH_DISABLE_WARNING(4251, "-Wunknown-warning-option") // needs to have dll-interface to be used by clients of class 'AzQtComponents::LineEdit'
+        static QPointer<LineEditWatcher> s_lineEditWatcher;
+        AZ_POP_DISABLE_WARNING
+        static unsigned int s_watcherReferenceCount;
 
         static void initializeWatcher();
         static void uninitializeWatcher();

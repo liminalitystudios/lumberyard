@@ -128,31 +128,35 @@ static DXGI_FORMAT AttributeTypeDXGIFormatTable[(unsigned int)AZ::Vertex::Attrib
 
 AZStd::vector<D3D11_INPUT_ELEMENT_DESC> GetD3D11Declaration(const AZ::Vertex::Format& vertexFormat)
 {
-    AZStd::vector<AZ::Vertex::Attribute> vertexAttributes = vertexFormat.GetAttributes();
     AZStd::vector<D3D11_INPUT_ELEMENT_DESC> declaration;
     uint offset = 0;
     // semanticIndices is a vector of zeros that will be incremented for each attribute that shares a usage/semantic name
-    AZStd::vector<uint> semanticIndices = AZStd::vector<uint>((uint)AZ::Vertex::AttributeUsage::NumTypes, 0);
-    for (AZ::Vertex::Attribute attribute : vertexAttributes)
+    uint semanticIndices[(uint)AZ::Vertex::AttributeUsage::NumUsages] = { 0 };
+
+    uint32 attributeCount = 0;
+    const uint8* vertexAttributes = vertexFormat.GetAttributes(attributeCount);
+    for (uint ii = 0; ii < attributeCount; ++ii)
     {
+        const uint8 attribute = vertexAttributes[ii];
+
         D3D11_INPUT_ELEMENT_DESC elementDescription;
-        uint usageIndex = (uint)attribute.GetUsage();
-        uint typeIndex = (uint)attribute.GetType();
+        AZ::Vertex::AttributeUsage attributeUsage = AZ::Vertex::Attribute::GetUsage(attribute);
+        AZ::Vertex::AttributeType attributeType = AZ::Vertex::Attribute::GetType(attribute);
         // TEXCOORD semantic name used for Tangents and BiTangents.
-        if (usageIndex == (uint)AZ::Vertex::AttributeUsage::Tangent || usageIndex == (uint)AZ::Vertex::AttributeUsage::BiTangent)
+        if (attributeUsage == AZ::Vertex::AttributeUsage::Tangent || attributeUsage == AZ::Vertex::AttributeUsage::BiTangent)
         {
-            usageIndex = (uint)AZ::Vertex::AttributeUsage::TexCoord;
+            attributeUsage = AZ::Vertex::AttributeUsage::TexCoord;
         }
-        elementDescription.SemanticName = AZ::Vertex::AttributeUsageDataTable[usageIndex].semanticName.c_str();
+        elementDescription.SemanticName = AZ::Vertex::Attribute::GetSemanticName(attribute).c_str();
 
         // Get the number of inputs with this usage up to this point, then increment that number
-        elementDescription.SemanticIndex = semanticIndices[usageIndex];
-        semanticIndices[usageIndex]++;
+        elementDescription.SemanticIndex = semanticIndices[(uint)attributeUsage];
+        semanticIndices[(uint)attributeUsage]++;
 
-        elementDescription.Format = AttributeTypeDXGIFormatTable[typeIndex];
+        elementDescription.Format = AttributeTypeDXGIFormatTable[(uint)attributeType];
 
         elementDescription.AlignedByteOffset = offset;
-        offset += attribute.GetByteLength();
+        offset += AZ::Vertex::Attribute::GetByteLength(attribute);
 
         elementDescription.InputSlot = 0;
         elementDescription.InputSlotClass = D3D11_INPUT_PER_VERTEX_DATA;
@@ -167,23 +171,16 @@ AZStd::vector<D3D11_INPUT_ELEMENT_DESC> GetD3D11Declaration(const AZ::Vertex::Fo
 void CD3D9Renderer::EF_OnDemandVertexDeclaration(SOnDemandD3DVertexDeclaration& out,
     const int nStreamMask, const AZ::Vertex::Format& vertexFormat, const bool bMorph, const bool bInstanced)
 {
-    //  iLog->Log("EF_OnDemandVertexDeclaration %d %d %d (DEBUG test - shouldn't log too often)",nStreamMask,vertexformat,bMorph?1:0);
-
-    if (m_RP.m_D3DVertexDeclarations.count(vertexFormat.GetCRC()) == 0)
-    {
-        m_RP.m_D3DVertexDeclarations[vertexFormat.GetCRC()].m_Declaration = GetD3D11Declaration(vertexFormat);
-        m_RP.m_crcVertexFormatLookupTable[vertexFormat.GetCRC()] = vertexFormat;
-        AZ_Warning("Rendering", false, "Vertex declaration cache miss. Building declaration for %s on the fly. Consider pre-baking this vertex format declaration.", vertexFormat.GetName());
-    }
-
     uint32 j;
+
+    AZStd::vector<D3D11_INPUT_ELEMENT_DESC>& declarationElements = m_RP.m_D3DVertexDeclarations[vertexFormat.GetEnum()].m_Declaration;
 
     if (bInstanced)
     {
         // Create instanced vertex declaration
-        for (j = 0; j < m_RP.m_D3DVertexDeclarations[vertexFormat.GetCRC()].m_Declaration.size(); j++)
+        for (j = 0; j <declarationElements.size(); j++)
         {
-            D3D11_INPUT_ELEMENT_DESC elem = m_RP.m_D3DVertexDeclarations[vertexFormat.GetCRC()].m_Declaration[j];
+            D3D11_INPUT_ELEMENT_DESC elem = declarationElements[j];
             elem.InputSlotClass = D3D11_INPUT_PER_INSTANCE_DATA;
             elem.InstanceDataStepRate = 1;
             out.m_Declaration.push_back(elem);
@@ -191,9 +188,9 @@ void CD3D9Renderer::EF_OnDemandVertexDeclaration(SOnDemandD3DVertexDeclaration& 
     }
     else
     {
-        for (j = 0; j < m_RP.m_D3DVertexDeclarations[vertexFormat.GetCRC()].m_Declaration.size(); j++)
+        for (j = 0; j < declarationElements.size(); j++)
         {
-            out.m_Declaration.push_back(m_RP.m_D3DVertexDeclarations[vertexFormat.GetCRC()].m_Declaration[j]);
+            out.m_Declaration.push_back(declarationElements[j]);
         }
     }
 
@@ -226,29 +223,15 @@ void CD3D9Renderer::EF_OnDemandVertexDeclaration(SOnDemandD3DVertexDeclaration& 
     }
 }
 
-void CD3D9Renderer::AddVertexFormatToRenderPipeline(const AZ::Vertex::Format& vertexFormat)
-{
-    // Keep the vertex declaration and a copy of the vertex format object that can be retreived via the crc
-    m_RP.m_D3DVertexDeclarations[vertexFormat.GetCRC()].m_Declaration = GetD3D11Declaration(vertexFormat);
-    m_RP.m_crcVertexFormatLookupTable[vertexFormat.GetCRC()] = vertexFormat;
-}
 
 void CD3D9Renderer::EF_InitD3DVertexDeclarations()
 {
     for (int nFormat = 1; nFormat < eVF_Max; ++nFormat)
     {
         AZ::Vertex::Format vertexFormat = AZ::Vertex::Format((EVertexFormat)nFormat);
-        AddVertexFormatToRenderPipeline(vertexFormat);
+        m_RP.m_D3DVertexDeclarations[nFormat].m_Declaration = GetD3D11Declaration(vertexFormat);
+        m_RP.m_vertexFormats[nFormat] = vertexFormat;
     }
-
-    // Custom vertex format for multiple uv sets
-    AZ::Vertex::Format vertexFormat = AZ::Vertex::Format({
-                AZ::Vertex::Attribute(AZ::Vertex::AttributeUsage::Position, AZ::Vertex::AttributeType::Float32_3),
-                AZ::Vertex::Attribute(AZ::Vertex::AttributeUsage::Color, AZ::Vertex::AttributeType::Byte_4),
-                AZ::Vertex::Attribute(AZ::Vertex::AttributeUsage::TexCoord, AZ::Vertex::AttributeType::Float32_2),
-                AZ::Vertex::Attribute(AZ::Vertex::AttributeUsage::TexCoord, AZ::Vertex::AttributeType::Float32_2)
-            });
-    AddVertexFormatToRenderPipeline(vertexFormat);
 
     //=============================================================================
     // Additional streams declarations:
@@ -611,11 +594,10 @@ void CD3D9Renderer::FX_PipelineShutdown(bool bFastShutdown)
     m_RP.m_SysVertexPool[1].Free();
     m_RP.m_SysIndexPool[1].Free();
 #endif
-    for (auto& crcVertexFormatPair : m_RP.m_D3DVertexDeclarations)
+    for (int index=0; index<eVF_Max; ++index)
     {
-        crcVertexFormatPair.second.m_Declaration.clear();
+        m_RP.m_D3DVertexDeclarations[index].m_Declaration.clear();
     }
-    m_RP.m_D3DVertexDeclarations.clear();
 
     // Loop through the 2D array of hash maps
     for (auto& stream : m_RP.m_D3DVertexDeclarationCache)
@@ -1667,7 +1649,7 @@ void CD3D9Renderer::FX_GmemTransition(const EGmemTransitions transition)
             FX_PushRenderTarget(5, CTexture::s_ptexSceneNormalsMap, NULL);
 
             dontCareColorLoad = { true,  true, true, true,  true, true };
-            dontCareColorSave = { false, true, true, false, false, true };
+            dontCareColorSave = { false, true, true, false, true, true };
         }
         else if (eGT_128bpp_PATH == currentGmemPath)
         {
@@ -1744,7 +1726,13 @@ void CD3D9Renderer::FX_GmemTransition(const EGmemTransitions transition)
             if (downsampleDepth)
             {
                 GetUtils().DownsampleDepth(CTexture::s_ptexGmemStenLinDepth, CTexture::s_ptexZTargetScaled, true);
-                GetUtils().DownsampleDepth(CTexture::s_ptexZTargetScaled, CTexture::s_ptexZTargetScaled2, false);
+                GetUtils().DownsampleDepth(CTexture::s_ptexZTargetScaled, CTexture::s_ptexZTargetScaled2, true);
+                static ICVar* checkOcclusion = gEnv->pConsole->GetCVar("e_CheckOcclusion");
+                if(checkOcclusion->GetIVal())
+                {
+                    //Downsample to the occlusion buffer dimensions
+                    GetUtils().DownsampleDepth(CTexture::s_ptexZTargetScaled2, m_occlusionData[m_occlusionBufferIndex].m_zTargetReadback, true);
+                }
             }
 
             if (deferredPasses)
@@ -1806,7 +1794,7 @@ void CD3D9Renderer::FX_GmemTransition(const EGmemTransitions transition)
                 //Linear depth is set to be cleared to 1.0f. x (linear depth) = 1, y(stencil id) = 0.
                 FX_SetColorDontCareActions(depthStencilRT, false, false);
                 FX_ClearTarget(CTexture::s_ptexGmemStenLinDepth, ColorF(1.000f, 0.000f, 0.000f));
-				
+
                 if (velocityRT > 0)
                 {
                     // Clear out the velocity buffer to half2(1.0, 1.0)
@@ -4270,11 +4258,6 @@ bool CRenderer::FX_TryToMerge(CRenderObject* pObjN, CRenderObject* pObjO, IRende
         return false;
     }
 
-    if (pObjN->m_bHasShadowCasters || pObjO->m_bHasShadowCasters)
-    {
-        return false;
-    }
-
     if (pObjN->m_nClipVolumeStencilRef != pObjO->m_nClipVolumeStencilRef)
     {
         return false;
@@ -5350,7 +5333,8 @@ void CD3D9Renderer::CPUOcclusionData::SetupOcclusionData(const char* textureName
     {
         unsigned int flags = FT_DONT_STREAM | FT_DONT_RELEASE | FT_STAGE_READBACK;
         m_zTargetReadback = CTexture::CreateTextureObject(textureName, s_occlusionBufferWidth, s_occlusionBufferHeight, 1, eTT_2D, flags, eTF_Unknown);
-        m_zTargetReadback->CreateRenderTarget(CTexture::s_eTFZ, Clr_FarPlane_R);
+        //CPU reading code expects it to be 32 bit float. Changing this to 16bit would require "16bit to 32bitfloat" conversion in FX_ZTargetReadBackOnCPU.
+        m_zTargetReadback->CreateRenderTarget(eTF_R32F, Clr_FarPlane_R); 
     }
 
     m_occlusionReadbackData.Reset(bReverseDepth);    
@@ -5399,6 +5383,30 @@ bool IsDepthReadbackOcclusionEnabled()
     return true;
 }
 
+void CD3D9Renderer::UpdateOcclusionDataForCPU()
+{
+    const bool bReverseDepth = (m_RP.m_TI[m_RP.m_nProcessThreadID].m_PersFlags & RBPF_REVERSE_DEPTH) != 0;
+    
+    // Copy to CPU accessible memory
+    m_occlusionData[m_occlusionBufferIndex].m_zTargetReadback->GetDevTexture()->DownloadToStagingResource(0);
+    
+    Matrix44 mCurView, mCurProj;
+    mCurView.SetIdentity();
+    mCurProj.SetIdentity();
+    GetModelViewMatrix(reinterpret_cast<f32*>(&mCurView));
+    GetProjectionMatrix(reinterpret_cast<f32*>(&mCurProj));
+    
+    if (bReverseDepth)
+    {
+        mCurProj = ReverseDepthHelper::Convert(mCurProj);
+    }
+    
+    m_occlusionData[m_occlusionBufferIndex].m_occlusionViewProj = mCurView * mCurProj;
+    m_occlusionData[m_occlusionBufferIndex].m_occlusionDataState = CPUOcclusionData::OcclusionDataState::OcclusionDataOnGPU;
+    
+    m_occlusionBufferIndex = (m_occlusionBufferIndex + 1) % s_numOcclusionReadbackTextures;
+}
+
 void CD3D9Renderer::FX_ZTargetReadBackOnCPU()
 {
     PROFILE_LABEL_SCOPE("DEPTH READBACK CPU");
@@ -5416,6 +5424,14 @@ void CD3D9Renderer::FX_ZTargetReadBackOnCPU()
     if (!IsDepthReadbackOcclusionEnabled() || (SRendItem::m_RecurseLevel[m_RP.m_nProcessThreadID] > 0))
     {
         return;
+    }
+
+    const bool isGmemEnabled = FX_GetEnabledGmemPath(nullptr) != CD3D9Renderer::eGT_REGULAR_PATH;
+    if (isGmemEnabled)
+    {
+        //Since FX_ZTargetReadBack can not be run for gmem path we update the
+        //occlusion data for m_occlusionData here.
+        UpdateOcclusionDataForCPU();
     }
 
     static ICVar* pCVCoverageBufferLatency = gEnv->pConsole->GetCVar("e_CoverageBufferNumberFramesLatency");    
@@ -5548,7 +5564,11 @@ void CD3D9Renderer::FX_ZTargetReadBack()
     }
 #endif // if AZ_RENDER_TO_TEXTURE_GEM_ENABLED
 
-    if (!IsDepthReadbackOcclusionEnabled())
+    //Check for gmem as this code runs after gbuffer breaking gmem path. Besides we can just use
+    //downsampled linearized depth for occlusion.
+    const bool isGmemEnabled = FX_GetEnabledGmemPath(nullptr) != CD3D9Renderer::eGT_REGULAR_PATH;
+
+    if (!IsDepthReadbackOcclusionEnabled() || isGmemEnabled)
     {
         return;
     }
@@ -5589,8 +5609,6 @@ void CD3D9Renderer::FX_ZTargetReadBack()
 
         InvalidateCoverageBufferData();
     }
-
-    const AZ::u8 occlusionDataIndex = m_occlusionBufferIndex;
 
     // downsample on GPU
     RECT srcRect;
@@ -5636,7 +5654,7 @@ void CD3D9Renderer::FX_ZTargetReadBack()
     }
 
     pSrc = pDst;
-    pDst = m_occlusionData[occlusionDataIndex].m_zTargetReadback;
+    pDst = m_occlusionData[m_occlusionBufferIndex].m_zTargetReadback;
     PostProcessUtils().StretchRect(pSrc, pDst, false, false, false, false, downsampleMode);
 
     //  Blend ID into top left pixel of readback buffer
@@ -5663,30 +5681,13 @@ void CD3D9Renderer::FX_ZTargetReadBack()
 
     gcpRendD3D->FX_PopRenderTarget(0);
     gcpRendD3D->RT_SetViewport(0, 0, GetWidth(), GetHeight());
-
-    // Copy to CPU accessible memory
-    m_occlusionData[occlusionDataIndex].m_zTargetReadback->GetDevTexture()->DownloadToStagingResource(0);
-
+    
     if (bUseNativeDepth)
     {
         CTexture::s_ptexZTarget->SetShaderResourceView(pZTargetOrigSRV, bMSAA);
     }
     
-    Matrix44 mCurView, mCurProj;
-    mCurView.SetIdentity();
-    mCurProj.SetIdentity();
-    GetModelViewMatrix(reinterpret_cast<f32*>(&mCurView));
-    GetProjectionMatrix(reinterpret_cast<f32*>(&mCurProj));
-
-    if (bReverseDepth)
-    {
-        mCurProj = ReverseDepthHelper::Convert(mCurProj);
-    }
-    
-    m_occlusionData[occlusionDataIndex].m_occlusionViewProj = mCurView * mCurProj;
-    m_occlusionData[occlusionDataIndex].m_occlusionDataState = CPUOcclusionData::OcclusionDataState::OcclusionDataOnGPU;
-    
-    m_occlusionBufferIndex = (m_occlusionBufferIndex + 1) % s_numOcclusionReadbackTextures;
+    UpdateOcclusionDataForCPU();
 }
 
 void CD3D9Renderer::FX_UpdateCharCBs()
@@ -6736,51 +6737,6 @@ void CD3D9Renderer::EnablePipelineProfiler(bool bEnable)
     if (m_pPipelineProfiler)
     {
         m_pPipelineProfiler->SetEnabled(bEnable);
-    }
-#endif
-}
-
-void CD3D9Renderer::LogShaderImportMiss(const CShader* pShader)
-{
-#if defined(SHADERS_SERIALIZING)
-    stack_string requestLineStr;
-
-    if (!CRenderer::CV_r_shaderssubmitrequestline || !CRenderer::CV_r_shadersremotecompiler)
-    {
-        return;
-    }
-
-    gRenDev->m_cEF.CreateShaderExportRequestLine(pShader, requestLineStr);
-
-    AZStd::string shaderList = GetShaderListFilename();
-
-#ifdef SHADER_ASYNC_COMPILATION
-    if (CRenderer::CV_r_shadersasynccompiling)
-    {
-        // Lazy init?
-        if (!SShaderAsyncInfo::PendingList().m_Next)
-        {
-            SShaderAsyncInfo::PendingList().m_Next = &SShaderAsyncInfo::PendingList();
-            SShaderAsyncInfo::PendingList().m_Prev = &SShaderAsyncInfo::PendingList();
-            SShaderAsyncInfo::PendingListT().m_Next = &SShaderAsyncInfo::PendingListT();
-            SShaderAsyncInfo::PendingListT().m_Prev = &SShaderAsyncInfo::PendingListT();
-        }
-
-        SShaderAsyncInfo* pAsyncRequest = new SShaderAsyncInfo;
-
-        if (pAsyncRequest)
-        {
-            pAsyncRequest->m_RequestLine = requestLineStr.c_str();
-            pAsyncRequest->m_shaderList = shaderList.c_str();
-            pAsyncRequest->m_Text = "";
-            pAsyncRequest->m_bDeleteAfterRequest = true;
-            CAsyncShaderTask::InsertPendingShader(pAsyncRequest);
-        }
-    }
-    else
-#endif
-    {
-        NRemoteCompiler::CShaderSrv::Instance().RequestLine(shaderList.c_str(), requestLineStr.c_str());
     }
 #endif
 }

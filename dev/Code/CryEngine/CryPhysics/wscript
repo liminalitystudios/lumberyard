@@ -26,6 +26,8 @@ def build(bld):
         configurations      = ['all'],
         pch                 = 'StdAfx.cpp',
         use                 = ['AzCore'],
+        includes            = [bld.Path('Code/CryEngine/CryCommon')
+                              ],
         defines             = ['ENGINE_EXPORTS', 'USE_CRY_NEW_AND_DELETE'],
 
         win_x64_clang_cxxflags = ['-Wno-deprecated-declarations'],
@@ -53,8 +55,8 @@ def build(bld):
         copyright_org      = 'Amazon-CryTek',
         file_list          = 'cryphysics.waf_files',
         platforms          = ['win', 'darwin'],
-        configurations     = ['debug_all',
-                              'profile_all'],
+        configurations     = ['all'],
+        exclude_monolithic = True,
         use                = ['AzCore'],
 
         win_x64_clang_cxxflags = ['-Wno-deprecated-declarations'],

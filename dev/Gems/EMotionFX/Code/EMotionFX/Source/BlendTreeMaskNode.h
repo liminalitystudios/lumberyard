@@ -72,7 +72,7 @@ namespace EMotionFX
         void OnUpdateUniqueData(AnimGraphInstance* animGraphInstance) override;
         bool GetHasOutputPose() const override                      { return true; }
         bool GetSupportsVisualization() const override              { return true; }
-        uint32 GetVisualColor() const override                      { return MCore::RGBA(50, 200, 50); }
+        AZ::Color GetVisualColor() const override                   { return AZ::Color(0.2f, 0.78f, 0.2f, 1.0f); }
         AnimGraphPose* GetMainOutputPose(AnimGraphInstance* animGraphInstance) const override         { return GetOutputPose(animGraphInstance, OUTPUTPORT_RESULT)->GetValue(); }
 
         const char* GetPaletteName() const override;
@@ -96,6 +96,11 @@ namespace EMotionFX
         void Output(AnimGraphInstance* animGraphInstance) override;
         void Update(AnimGraphInstance* animGraphInstance, float timePassedInSeconds) override;
         void PostUpdate(AnimGraphInstance* animGraphInstance, float timePassedInSeconds) override;
+
+        AZStd::string GetMask0JointName(int index) const;
+        AZStd::string GetMask1JointName(int index) const;
+        AZStd::string GetMask2JointName(int index) const;
+        AZStd::string GetMask3JointName(int index) const;
 
         AZStd::vector<AZStd::string>        m_mask0;
         AZStd::vector<AZStd::string>        m_mask1;

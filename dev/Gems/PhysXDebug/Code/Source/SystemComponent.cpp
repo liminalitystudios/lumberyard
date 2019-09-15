@@ -31,6 +31,9 @@
 #include <IConsole.h>
 #include <StringUtils.h>
 
+//#include "E:\novanet_dev_physx\dev\Gems\ImGui\External\ImGui\v1.53\imgui\imgui_internal.h"
+//#include "E:\physx\PhysX-3.4-master\PhysX-3.4-master\PhysX_3.4\Include\common\PxCoreUtilityTypes.h"
+
 namespace PhysXDebug
 {
     const float SystemComponent::m_maxCullingBoxSize = 150.0f;
@@ -167,6 +170,7 @@ namespace PhysXDebug
         InitPhysXColorMappings();
         RegisterCommands();
         ConfigurePhysXVisualizationParameters();
+
     }
 
     void SystemComponent::Reflect(AZ::ReflectContext* context)
@@ -450,14 +454,20 @@ namespace PhysXDebug
 
     void SystemComponent::UpdateColliderVisualizationByProximity()
     {
-        const CCamera& camera = gEnv->pSystem->GetViewCamera();
-        AZ::Vector3 cameraTranslation = LYVec3ToAZVec3(camera.GetPosition());
+        if(gEnv->IsEditing())
+        {
+            if (m_settings.m_visualizeCollidersByProximity)
+            {
+                const CCamera& camera = gEnv->pSystem->GetViewCamera();
+                AZ::Vector3 cameraTranslation = LYVec3ToAZVec3(camera.GetPosition());
 
-        PhysX::SystemRequestsBus::Broadcast(
-            &PhysX::SystemRequests::UpdateColliderProximityVisualization,
-            m_settings.m_visualizeCollidersByProximity,
-            cameraTranslation,
-            m_culling.m_boxSize * 0.5f);
+                PhysX::SystemRequestsBus::Broadcast(
+                    &PhysX::SystemRequests::UpdateColliderProximityVisualization,
+                    m_settings.m_visualizeCollidersByProximity,
+                    cameraTranslation,
+                    m_culling.m_boxSize * 0.5f);
+             }
+        }
     }
 
     void SystemComponent::ClearBuffers()

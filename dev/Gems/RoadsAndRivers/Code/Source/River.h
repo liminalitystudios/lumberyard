@@ -13,8 +13,8 @@
 
 #include <AzCore/Math/Plane.h>
 #include <AzCore/Component/TransformBus.h>
-#include <AZCore/Math/Color.h>
-#include <AZCore/Math/Vector2.h>
+#include <AzCore/Math/Color.h>
+#include <AzCore/Math/Vector2.h>
 
 #include <LmbrCentral/Rendering/MaterialAsset.h>
 #include <LmbrCentral/Shape/SplineComponentBus.h>
@@ -95,6 +95,8 @@ namespace RoadsAndRivers
         void SetWaterStreamSpeed(float waterStreamSpeed) override;
         float GetWaterStreamSpeed() override;
 
+        AZ::Plane GetWaterSurfacePlane() override;
+
         /**
          * Triggers full rebuild of the river object, including geometry and render node generation
          */
@@ -143,6 +145,7 @@ namespace RoadsAndRivers
         void RenderingPropertyModified() override;
 
         void MaterialChanged();
+        void WaterVolumeDepthModified();
         void PhysicsPropertyModified();
         void TilingPropertyModified();
 

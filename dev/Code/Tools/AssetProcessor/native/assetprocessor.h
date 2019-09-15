@@ -23,6 +23,7 @@
 #include <AssetBuilderSDK/AssetBuilderSDK.h>
 #include <AzCore/std/containers/vector.h>
 #include <AzCore/std/containers/map.h>
+#include <AzCore/std/containers/set.h>
 #include <AzCore/Asset/AssetCommon.h>
 #include <AzFramework/Asset/AssetRegistry.h>
 #include <AzCore/Math/Crc.h>
@@ -214,6 +215,9 @@ namespace AssetProcessor
 
         bool m_critical = false;
         int m_priority = -1;
+        // indicates whether we need to check the server first for the outputs of this job 
+        // before we start processing locally
+        bool m_checkServer = false;
 
         AssetBuilderSDK::AssetBuilderDesc   m_assetBuilderDesc;
         AssetBuilderSDK::JobParameterMap    m_jobParam;
@@ -226,8 +230,6 @@ namespace AssetProcessor
         // if you set a job to "auto fail" it will check the m_jobParam map for a AZ_CRC(AutoFailReasonKey) and use that, if present, for fail information
         bool m_autoFail = false;
 
-        // indicates a succeeded createJob and clears out any autoFail failures
-        bool m_autoSucceed = false;
         AZStd::string ToString() const
         {
             return QString("%1 %2 %3").arg(m_jobEntry.m_databaseSourceName, m_jobEntry.m_platformInfo.m_identifier.c_str(), m_jobEntry.m_jobKey).toUtf8().data();

@@ -185,6 +185,7 @@ protected:
 
     //! Editor entity context notification bus
     void OnEditorEntitiesReplacedBySlicedEntities(const AZStd::unordered_map<AZ::EntityId, AZ::EntityId>& replacedEntitiesMap) override;
+    void OnEditorEntityDuplicated(const AZ::EntityId& oldEntity, const AZ::EntityId& newEntity) override;
     void OnContextReset() override;
 
     //! Editor component lock interface to enable/disable selection of entity in the viewport.
@@ -306,16 +307,30 @@ private:
     const int maskDiameter = 8;  
 };
 
-// Class used to identify the visibility checkbox element for styling purposes
-class OutlinerVisibilityCheckBox : public QCheckBox
+class OutlinerCheckBox : public QCheckBox
 {
-    Q_OBJECT;
+   Q_OBJECT
+
+public:
+    explicit OutlinerCheckBox(QWidget* parent = nullptr);
+
+    void draw(QPainter* painter);
+};
+
+// Class used to identify the visibility checkbox element for styling purposes
+class OutlinerVisibilityCheckBox : public OutlinerCheckBox
+{
+    Q_OBJECT
+public:
+    explicit OutlinerVisibilityCheckBox(QWidget* parent = nullptr);
 };
 
 // Class used to identify the lock checkbox element for styling purposes
-class OutlinerLockCheckBox : public QCheckBox
+class OutlinerLockCheckBox : public OutlinerCheckBox
 {
-    Q_OBJECT;
+    Q_OBJECT
+public:
+    explicit OutlinerLockCheckBox(QWidget* parent = nullptr);
 };
 
 /*!
@@ -335,6 +350,7 @@ public:
     // Qt overrides
     void paint(QPainter* painter, const QStyleOptionViewItem& option, const QModelIndex& index) const override;
     QSize sizeHint(const QStyleOptionViewItem& option, const QModelIndex& index) const override;
+
 private:
     // The layer stripe is a continuous line from the layer's color box to the last entity in the layer.
     // Two layer stripes are drawn, one in the color of the layer and other in the border box color.
@@ -362,6 +378,10 @@ private:
 
     const int m_layerDividerLineHeight = 1;
     const int m_lastEntityInLayerDividerLineHeight = 1;
+
+    QColor m_outlinerSelectionColor;
+
+    OutlinerCheckBox* setupCheckBox(const QStyleOptionViewItem& option, const QModelIndex& index, const QColor& backgroundColor, bool isLayerEntity) const;
 };
 
 Q_DECLARE_METATYPE(AZ::ComponentTypeList); // allows type to be stored by QVariable

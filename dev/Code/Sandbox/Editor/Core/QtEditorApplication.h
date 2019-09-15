@@ -19,7 +19,6 @@
 #include <QSet>
 #include "IEventLoopHook.h"
 #include <unordered_map>
-#include "BoostHelpers.h"
 
 #include <AzCore/PlatformDef.h>
 #include <AzCore/UserSettings/UserSettingsProvider.h>
@@ -58,6 +57,7 @@ namespace Editor
         : public QApplication
         , public QAbstractNativeEventFilter
         , public IEditorNotifyListener
+        , public AZ::UserSettingsOwnerRequestBus::Handler
     {
         Q_OBJECT
         Q_PROPERTY(QSet<int> pressedKeys READ pressedKeys)
@@ -71,7 +71,11 @@ namespace Editor
         void Initialize();
 
         void LoadSettings();
-        void SaveSettings();
+        void UnloadSettings();
+
+        // AZ::UserSettingsOwnerRequestBus::Handler
+        void SaveSettings() override;
+        ////
 
         static EditorQtApplication* instance();
 
@@ -93,6 +97,7 @@ namespace Editor
         const QColor& GetColorByName(const QString& colorName);
 
         void EnableOnIdle(bool enable = true);
+        bool OnIdleEnabled() const;
 
         bool eventFilter(QObject* object, QEvent* event) override;
 

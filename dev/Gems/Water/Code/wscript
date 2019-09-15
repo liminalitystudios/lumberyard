@@ -13,7 +13,9 @@
 def build(bld):
     bld.DefineGem(
         defines      = ['WATER_GEM'],
-        includes     = [bld.Path('Code/CryEngine')],
+        includes     = [bld.Path('Code/CryEngine'),
+                        bld.Path('Code/CryEngine/CryCommon')
+                       ],
         win_features = ['crcfix'],
         editor = dict(
             platforms  = ['win', 'darwin'],
@@ -21,7 +23,8 @@ def build(bld):
             uselib     = ['QT5CORE',
                           'QT5GUI',
                           'QT5NETWORK', # this lib depends on EditorLib, which depends on NewsShared, which depends on Qt5Network
-                          'QT5WIDGETS'],
+                          'QT5WIDGETS'
+                        ],
             use        = ['AzQtComponents',
                           'EditorUI_QT',
                           'EditorCommon',
@@ -34,7 +37,9 @@ def build(bld):
                           bld.Path('Code/Sandbox/Plugins/EditorCommon'),
                           bld.Path('Code/Sandbox/Editor'),
                           bld.Path('Code/Sandbox/Editor/Include'),
-                          bld.Path('Code/CryEngine')],
+                          bld.Path('Code/CryEngine'),
+                          bld.Path('Code/CryEngine/CryCommon')
+                         ],
 
             # For the macOS we require the AWS libs in order to link the editor
             # because there are implicit dependencies on LyMetrics/LyIdentity

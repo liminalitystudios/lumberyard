@@ -92,13 +92,27 @@ namespace AzToolsFramework
             delete m_template;
         }
 
-        const char* GenericComponentWrapper::GetDisplayName() const
+        const char* GenericComponentWrapper::GetDisplayName()
         {
+            if (m_displayName.empty())
+            {
+                if (m_template)
+                {
+                    m_displayName = GetFriendlyComponentName(m_template);
+                }
+            }
             return m_displayName.c_str();
         }
 
-        const char* GenericComponentWrapper::GetDisplayDescription() const
+        const char* GenericComponentWrapper::GetDisplayDescription()
         {
+            if (m_displayDescription.empty())
+            {
+                if (m_template)
+                {
+                    m_displayDescription = GetFriendlyComponentDescription(m_template);
+                }
+            }
             return m_displayDescription.c_str();
         }
 
@@ -187,15 +201,13 @@ namespace AzToolsFramework
             return AZ::Success();
         }
 
-        void GenericComponentWrapper::DisplayEntity(bool& handled)
+        void GenericComponentWrapper::DisplayEntityViewport(
+            const AzFramework::ViewportInfo& /*viewportInfo*/,
+            AzFramework::DebugDisplayRequests& debugDisplay)
         {
             if (m_templateEvents)
             {
-                auto* displayInterface = AzFramework::EntityDebugDisplayRequestBus::FindFirstHandler();
-                if (displayInterface)
-                {
-                    m_templateEvents->EditorDisplay(GetEntityId(), *displayInterface, GetWorldTM(), handled);
-                }
+                m_templateEvents->EditorDisplay(GetEntityId(), debugDisplay, GetWorldTM());
             }
         }
 

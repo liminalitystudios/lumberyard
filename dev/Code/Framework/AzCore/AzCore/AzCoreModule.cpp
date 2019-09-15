@@ -16,8 +16,8 @@
 #include <AzCore/Debug/FrameProfilerComponent.h>
 #include <AzCore/IO/StreamerComponent.h>
 #include <AzCore/Jobs/JobManagerComponent.h>
-#include <AzCore/RTTI/AzStdReflectionComponent.h>
 #include <AzCore/Memory/MemoryComponent.h>
+#include <AzCore/NativeUI/NativeUISystemComponent.h>
 #include <AzCore/Script/ScriptSystemComponent.h>
 #include <AzCore/Serialization/ObjectStreamComponent.h>
 #include <AzCore/Slice/SliceComponent.h>
@@ -31,7 +31,6 @@ namespace AZ
         : AZ::Module()
     {
         m_descriptors.insert(m_descriptors.end(), {
-            AzStdReflectionComponent::CreateDescriptor(),
             MemoryComponent::CreateDescriptor(),
             StreamerComponent::CreateDescriptor(),
             JobManagerComponent::CreateDescriptor(),
@@ -39,6 +38,7 @@ namespace AZ
             ObjectStreamComponent::CreateDescriptor(),
             UserSettingsComponent::CreateDescriptor(),
             Debug::FrameProfilerComponent::CreateDescriptor(),
+            NativeUI::NativeUISystemComponent::CreateDescriptor(),
             SliceComponent::CreateDescriptor(),
             SliceSystemComponent::CreateDescriptor(),
             SliceMetadataInfoComponent::CreateDescriptor(),

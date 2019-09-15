@@ -253,8 +253,13 @@ namespace GraphCanvas
     {
         if (m_editable != editable)
         {
-            m_editable = editable;
-            
+            m_editable = editable;            
+
+            if (!m_editable)
+            {
+                SubmitValue();
+            }
+
             (m_editable ? SetupProxyWidget() : CleanupProxyWidget());
             UpdateLayout();
 
@@ -268,6 +273,7 @@ namespace GraphCanvas
                 UpdateSizing();
 
                 StyledEntityRequestBus::Event(GetEntityId(), &StyledEntityRequests::AddSelectorState, Styling::States::Editing);
+
                 m_textEdit->selectAll();
 
                 SceneMemberUIRequestBus::Event(GetEntityId(), &SceneMemberUIRequests::SetSelected, true);
@@ -303,11 +309,11 @@ namespace GraphCanvas
         AZStd::string value = (m_textEdit ? AZStd::string(m_textEdit->toPlainText().toUtf8().data()) : m_commentText);
         m_displayLabel->SetLabel(value);
 
+        prepareGeometryChange();
+
         if (m_textEdit)
         {
             QSizeF oldSize = m_textEdit->minimumSize();
-
-            prepareGeometryChange();
 
             // As we update the label with the new contents, adjust the editable widget size to match
             if (m_commentMode == CommentMode::Comment)
@@ -322,13 +328,16 @@ namespace GraphCanvas
 
                 displaySize.setHeight(preferredSize.height());
 
-                if (displaySize.width() == 0 || displaySize.height() == 0)
+                if (displaySize.width() == 0)
                 {
-                    return;
+                    m_textEdit->setMinimumHeight(preferredSize.height());
+                    m_textEdit->setMaximumHeight(preferredSize.height());
                 }
-
-                m_textEdit->setMinimumSize(displaySize.size().toSize());
-                m_textEdit->setMaximumSize(displaySize.size().toSize());
+                else
+                {
+                    m_textEdit->setMinimumSize(displaySize.size().toSize());
+                    m_textEdit->setMaximumSize(displaySize.size().toSize());
+                }
             }
 
             QSizeF newSize = m_textEdit->minimumSize();
@@ -344,7 +353,11 @@ namespace GraphCanvas
 
     void CommentTextGraphicsWidget::SubmitValue()
     {
-        m_commentText = m_textEdit->toPlainText().toUtf8().data();
+        if (m_textEdit)
+        {
+            m_commentText = m_textEdit->toPlainText().toUtf8().data();
+        }
+
         CommentRequestBus::Event(GetEntityId(), &CommentRequests::SetComment, m_commentText);
         CommentNotificationBus::Event(GetEntityId(), &CommentNotifications::OnCommentChanged, m_commentText);
         UpdateSizing();
@@ -445,6 +458,15 @@ namespace GraphCanvas
             QObject::connect(m_textEdit, &Internal::FocusableTextEdit::textChanged, [this]() { this->UpdateSizing(); });
             QObject::connect(m_textEdit, &Internal::FocusableTextEdit::OnFocusIn, [this]() { this->m_layoutLock = true; });
             QObject::connect(m_textEdit, &Internal::FocusableTextEdit::OnFocusOut, [this]() { this->SubmitValue(); this->m_layoutLock = false; this->SetEditable(false); });
+            QObject::connect(m_textEdit, &Internal::FocusableTextEdit::EnterPressed, [this]() 
+            { 
+                QTimer::singleShot(0, [this]()
+                {
+                    this->SubmitValue(); 
+                    this->m_layoutLock = false; 
+                    this->SetEditable(false);
+                });
+            });
         }
     }
 

@@ -52,6 +52,8 @@ namespace AzToolsFramework
         virtual bool IsSubsliceEntity() const = 0;
         virtual bool IsSliceRoot() const = 0;
         virtual bool IsSubsliceRoot() const = 0;
+        virtual bool HasSliceEntityAnyChildrenAddedOrDeleted() const = 0;
+        virtual bool HasSliceEntityPropertyOverridesInTopLevel() const = 0;
         virtual bool HasSliceEntityOverrides() const = 0;
         virtual bool HasSliceChildrenOverrides() const = 0;
         virtual bool HasSliceAnyOverrides() const = 0;
@@ -74,6 +76,9 @@ namespace AzToolsFramework
         // This check allows the outliner to detect if this entity was specifically locked,
         // so it can render that state. Everywhere else should use the IsLocked check, which checks entities.
         virtual bool IsJustThisEntityLocked() const = 0;
+
+        virtual bool IsComponentExpanded(AZ::ComponentId id) const = 0;
+        virtual void SetComponentExpanded(AZ::ComponentId id, bool expanded) = 0;
     };
     using EditorEntityInfoRequestBus = AZ::EBus<EditorEntityInfoRequests>;
 

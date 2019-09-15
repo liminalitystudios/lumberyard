@@ -13,9 +13,9 @@
 #include "CloudGemDefectReporter_precompiled.h"
 
 #include <CloudGemFramework/HttpFileUploadJob.h>
-#include "AWS/ServiceAPI/CloudGemDefectReporterClientComponent.h"
+#include "AWS/ServiceApi/CloudGemDefectReporterClientComponent.h"
 #include <AzCore/Component/ComponentApplicationBus.h>
-#include <AzCore/std/parallel/conditional_variable.h>
+#include <AzCore/std/parallel/condition_variable.h>
 #include <AzCore/std/parallel/mutex.h>
 #include <AzCore/std/parallel/lock.h>
 #include <AzCore/Jobs/JobContext.h>
@@ -29,6 +29,8 @@
 #include <CloudGemMetric/MetricsAttribute.h>
 #include <CloudGemMetric/MetricsEventParameter.h>
 #include <CloudGemMetric/CloudGemMetricBus.h>
+
+#include <CloudCanvasCommon/CloudCanvasCommonBus.h>
 
 namespace CloudGemDefectReporter
 {
@@ -175,7 +177,7 @@ namespace CloudGemDefectReporter
 
             
             AZ::JobContext* jobContext{ nullptr };
-            EBUS_EVENT_RESULT(jobContext, CloudGemFramework::CloudGemFrameworkRequestBus, GetDefaultJobContext);
+            EBUS_EVENT_RESULT(jobContext, CloudCanvasCommon::CloudCanvasCommonRequestBus, GetDefaultJobContext);
 
             AZ::Job* job{ nullptr };
 

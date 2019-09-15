@@ -10,13 +10,12 @@
 *
 */
 
-#include <Tests/TestTypes.h>
-
 #include <AzCore/Asset/AssetManagerComponent.h>
 #include <AzCore/RTTI/BehaviorContext.h>
 #include <AzCore/Script/ScriptAsset.h>
 #include <AzCore/Script/ScriptSystemComponent.h>
 #include <AzCore/Script/ScriptContext.h>
+#include <AzCore/UnitTest/TestTypes.h>
 #include <AzToolsFramework/ToolsComponents/ScriptEditorComponent.h>
 
 #include "EntityTestbed.h"
@@ -208,6 +207,11 @@ namespace UnitTest
 
                     // trigger reload
                     Data::AssetManager::Instance().ReloadAssetFromData(scriptAsset2);
+                    
+                    // ReloadAssetFromData is (now) a queued event
+                    // Need to tick subsystems here to receive reload event.
+                    app.Tick();
+                    app.TickSystem();
 
                     // test value with the reloaded value
                     EXPECT_EQ(5, myReloadValue);

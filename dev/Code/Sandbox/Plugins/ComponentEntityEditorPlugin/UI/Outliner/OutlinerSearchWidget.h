@@ -27,14 +27,19 @@ namespace Ui
 
 namespace AzQtComponents
 {
+    class OutlinerSearchItemDelegate;
+
     class OutlinerSearchTypeSelector
         : public SearchTypeSelector
     {
     public:
-        OutlinerSearchTypeSelector(QWidget* parent = nullptr);
+        OutlinerSearchTypeSelector(QPushButton* parent = nullptr);
+        const QString& GetFilterString() { return m_filterString; }
 
     protected:
-        void RepopulateDataModel() override;
+        // can be used to override the logic when adding items in RepopulateDataModel
+        bool filterItemOut(int unfilteredDataIndex, bool itemMatchesFilter, bool categoryMatchesFilter) override;
+        void initItem(QStandardItem* item, const SearchTypeFilter& filter, int unfilteredDataIndex) override;
     };
 
     class OutlinerCriteriaButton
@@ -53,8 +58,7 @@ namespace AzQtComponents
     public:
         explicit OutlinerSearchWidget(QWidget* parent = nullptr);
 
-        void SetFilterStateByIndex(int index, bool enabled) override;
-        void ClearTypeFilter() override;
+        FilterCriteriaButton* createCriteriaButton(const SearchTypeFilter& filter, int filterIndex) override;
 
         enum class GlobalSearchCriteria : int
         {
@@ -65,6 +69,9 @@ namespace AzQtComponents
             Separator,
             FirstRealFilter
         };
+    private:
+        OutlinerSearchTypeSelector* m_selector = nullptr;
+        OutlinerSearchItemDelegate* m_delegate = nullptr;
     };
 
     class OutlinerIcons
@@ -90,7 +97,13 @@ namespace AzQtComponents
     public:
         OutlinerSearchItemDelegate(QWidget* parent = nullptr);
 
+        void PaintRichText(QPainter* painter, QStyleOptionViewItemV4& opt, QString& text) const;
         void paint(QPainter* painter, const QStyleOptionViewItem& option, const QModelIndex& index) const override;
         QSize sizeHint(const QStyleOptionViewItem& option, const QModelIndex& index) const override;
+
+        void SetSelector(OutlinerSearchTypeSelector* selector) { m_selector = selector; }
+
+    private:
+        OutlinerSearchTypeSelector* m_selector;
     };
 }

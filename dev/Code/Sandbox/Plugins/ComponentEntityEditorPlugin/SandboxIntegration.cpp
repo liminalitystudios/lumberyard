@@ -26,6 +26,7 @@
 #include <AzCore/Outcome/Outcome.h>
 #include <AzFramework/API/ApplicationAPI.h>
 #include <AzFramework/Entity/EntityContextBus.h>
+#include <AzFramework/Physics/Material.h>
 #include <AzFramework/StringFunc/StringFunc.h>
 #include <AzToolsFramework/API/EditorAssetSystemAPI.h>
 #include <AzToolsFramework/API/EntityCompositionRequestBus.h>
@@ -33,6 +34,7 @@
 #include <AzToolsFramework/AssetBrowser/AssetBrowserEntry.h>
 #include <AzToolsFramework/AssetBrowser/AssetSelectionModel.h>
 #include <AzToolsFramework/Commands/EntityStateCommand.h>
+#include <AzToolsFramework/Commands/SelectionCommand.h>
 #include <AzToolsFramework/Commands/SliceDetachEntityCommand.h>
 #include <AzToolsFramework/Entity/EditorEntityHelpers.h>
 #include <AzToolsFramework/Entity/EditorEntityInfoBus.h>
@@ -64,6 +66,7 @@
 #include <Editor/GameEngine.h>
 #include <Editor/DisplaySettings.h>
 #include <Editor/Util/CubemapUtils.h>
+#include <Editor/IconManager.h>
 #include <Editor/Objects/ObjectLayer.h>
 #include <Editor/Objects/ObjectLayerManager.h>
 #include <Editor/Objects/ShapeObject.h>
@@ -157,17 +160,30 @@ void SandboxIntegrationManager::Setup()
     AzFramework::AssetCatalogEventBus::Handler::BusConnect();
     AzToolsFramework::ToolsApplicationEvents::Bus::Handler::BusConnect();
     AzToolsFramework::EditorRequests::Bus::Handler::BusConnect();
-    AzFramework::EntityContextId pickModeEntityContextId = GetEntityContextId();
-    if (!pickModeEntityContextId.IsNull())
+
+    // if the new viewport interaction model is enabled, then object picking is handled via
+    // EditorPickEntitySelection and SandboxIntegrationManager is not required
+    if (!IsNewViewportInteractionModelEnabled())
     {
-        AzToolsFramework::EditorPickModeRequests::Bus::Handler::BusConnect(pickModeEntityContextId);
+        AzFramework::EntityContextId pickModeEntityContextId = GetEntityContextId();
+        if (!pickModeEntityContextId.IsNull())
+        {
+            AzToolsFramework::EditorPickModeNotificationBus::Handler::BusConnect(pickModeEntityContextId);
+        }
     }
+
     AzToolsFramework::EditorEvents::Bus::Handler::BusConnect();
     AzToolsFramework::EditorEntityContextNotificationBus::Handler::BusConnect();
     AzToolsFramework::HyperGraphRequestBus::Handler::BusConnect();
+    AZ_PUSH_DISABLE_WARNING(4996, "-Wdeprecated-declarations")
     AzFramework::EntityDebugDisplayRequestBus::Handler::BusConnect();
+    AZ_POP_DISABLE_WARNING
+    AzFramework::DebugDisplayRequestBus::Handler::BusConnect(
+        AzToolsFramework::ViewportInteraction::g_mainViewportEntityDebugDisplayId);
+    AzFramework::DisplayContextRequestBus::Handler::BusConnect();
     SetupFileExtensionMap();
     AZ::LegacyConversion::LegacyConversionRequestBus::Handler::BusConnect();
+    AzToolsFramework::NewViewportInteractionModelEnabledRequestBus::Handler::BusConnect();
 
     MainWindow::instance()->GetActionManager()->RegisterActionHandler(ID_FILE_SAVE_SLICE_TO_ROOT, [this]() {
         SaveSlice(false);
@@ -204,7 +220,7 @@ void SandboxIntegrationManager::SaveSlice(const bool& QuickPushToFirstLevel)
             relevantEntities.push_back(id);
         }
     }
-    
+
     int numEntitiesToAdd = 0;
     int numEntitiesToRemove = 0;
     int numEntitiesToUpdate = 0;
@@ -342,9 +358,36 @@ void SandboxIntegrationManager::GetEntitiesInSlices(
     }
 }
 
+void SandboxIntegrationManager::Teardown()
+{
+    AzToolsFramework::NewViewportInteractionModelEnabledRequestBus::Handler::BusDisconnect();
+    AZ::LegacyConversion::LegacyConversionRequestBus::Handler::BusDisconnect();
+    AzFramework::DisplayContextRequestBus::Handler::BusDisconnect();
+    AzFramework::DebugDisplayRequestBus::Handler::BusDisconnect();
+    AZ_PUSH_DISABLE_WARNING(4996, "-Wdeprecated-declarations")
+    AzFramework::EntityDebugDisplayRequestBus::Handler::BusDisconnect();
+    AZ_POP_DISABLE_WARNING
+    AzToolsFramework::HyperGraphRequestBus::Handler::BusDisconnect();
+    AzToolsFramework::EditorEntityContextNotificationBus::Handler::BusDisconnect();
+    AzToolsFramework::EditorEvents::Bus::Handler::BusDisconnect();
+
+    if (!IsNewViewportInteractionModelEnabled())
+    {
+        AzToolsFramework::EditorPickModeNotificationBus::Handler::BusDisconnect();
+    }
+
+    AzToolsFramework::EditorRequests::Bus::Handler::BusDisconnect();
+    AzToolsFramework::ToolsApplicationEvents::Bus::Handler::BusDisconnect();
+}
+
 void SandboxIntegrationManager::SetDC(DisplayContext* dc)
 {
     m_dc = dc;
+}
+
+DisplayContext* SandboxIntegrationManager::GetDC()
+{
+    return m_dc;
 }
 
 void SandboxIntegrationManager::OnBeginUndo(const char* label)
@@ -851,7 +894,7 @@ void SandboxIntegrationManager::SetupSliceContextMenu_Modify(QMenu* menu, const 
 
     SliceUtilities::PopulateQuickPushMenu(*menu, relevantEntities);
 
-    SliceUtilities::PopulateDetachMenu(*menu, selectedEntities);
+    SliceUtilities::PopulateDetachMenu(*menu, selectedEntities, relevantEntitiesSet);
 
     bool canRevert = false;
 
@@ -949,6 +992,7 @@ void SandboxIntegrationManager::HandleObjectModeSelection(const AZ::Vector2& poi
 {
     // Todo - Use a custom "edit tool". This will eliminate the need for this bus message entirely, which technically
     // makes this feature less intrusive on Sandbox.
+    // UPDATE: This is now provided by EditorPickEntitySelection when the new Viewport Interaction Model changes are enabled.
     if (m_inObjectPickMode)
     {
         CViewport* view = GetIEditor()->GetViewManager()->GetGameViewport();
@@ -961,11 +1005,14 @@ void SandboxIntegrationManager::HandleObjectModeSelection(const AZ::Vector2& poi
             if (hitInfo.object && (hitInfo.object->GetType() == OBJTYPE_AZENTITY))
             {
                 CComponentEntityObject* entityObject = static_cast<CComponentEntityObject*>(hitInfo.object);
-                EBUS_EVENT(AzToolsFramework::EditorPickModeRequests::Bus, OnPickModeSelect, entityObject->GetAssociatedEntityId());
+                AzToolsFramework::EditorPickModeRequestBus::Broadcast(
+                    &AzToolsFramework::EditorPickModeRequests::PickModeSelectEntity, entityObject->GetAssociatedEntityId());
             }
         }
 
-        EBUS_EVENT(AzToolsFramework::EditorPickModeRequests::Bus, StopObjectPickMode);
+        AzToolsFramework::EditorPickModeRequestBus::Broadcast(
+            &AzToolsFramework::EditorPickModeRequests::StopEntityPickMode);
+
         handled = true;
     }
 }
@@ -979,7 +1026,7 @@ void SandboxIntegrationManager::UpdateObjectModeCursor(AZ::u32& cursorId, AZStd:
     }
 }
 
-void SandboxIntegrationManager::StartObjectPickMode()
+void SandboxIntegrationManager::OnEntityPickModeStarted()
 {
     m_inObjectPickMode = true;
 
@@ -992,7 +1039,7 @@ void SandboxIntegrationManager::StartObjectPickMode()
     }
 }
 
-void SandboxIntegrationManager::StopObjectPickMode()
+void SandboxIntegrationManager::OnEntityPickModeStopped()
 {
     m_inObjectPickMode = false;
 }
@@ -1098,10 +1145,13 @@ bool SandboxIntegrationManager::CanGoToEntityOrChildren(const AZ::EntityId& enti
         isLayerEntity,
         entityId,
         &AzToolsFramework::Layers::EditorLayerComponentRequestBus::Events::HasLayer);
-    // If this entity is not a layer, then the camera can go to it.
+    // If this entity is not a layer
     if (!isLayerEntity)
     {
-        return true;
+        // check if the entity exists to determine if we can go to it (e.g. system & internal entities are not visible in the viewport)
+        AZ::Entity* entity = nullptr;
+        AZ::ComponentApplicationBus::BroadcastResult(entity, &AZ::ComponentApplicationRequests::FindEntity, entityId);
+        return entity != nullptr;
     }
 
     AZStd::vector<AZ::EntityId> layerChildren;
@@ -1136,12 +1186,17 @@ AZ::Vector3 SandboxIntegrationManager::GetWorldPositionAtViewportCenter()
     return AZ::Vector3::CreateZero();
 }
 
+int SandboxIntegrationManager::GetIconTextureIdFromEntityIconPath(const AZStd::string& entityIconPath)
+{
+    return GetIEditor()->GetIconManager()->GetIconTexture(entityIconPath.c_str());
+}
+
 void SandboxIntegrationManager::ClearRedoStack()
 {
     // We have two separate undo systems that are assumed to be kept in sync,
     // So here we tell the legacy Undo system to clear the redo stack and at the same time
     // tell the new AZ undo system to clear redo stack ("slice" the stack)
-    
+
     // Clear legacy redo stack
     GetIEditor()->ClearRedoStack();
 
@@ -1175,9 +1230,21 @@ void SandboxIntegrationManager::CloneSelection(bool& handled)
     }
 }
 
-void SandboxIntegrationManager::DeleteSelectedEntities(bool includeDescendants)
+void SandboxIntegrationManager::DeleteSelectedEntities(const bool includeDescendants)
 {
-    CCryEditApp::instance()->DeleteSelectedEntities(includeDescendants);
+    if (IsNewViewportInteractionModelEnabled())
+    {
+        AzToolsFramework::EntityIdList selectedEntityIds;
+        AzToolsFramework::ToolsApplicationRequestBus::BroadcastResult(
+            selectedEntityIds, &AzToolsFramework::ToolsApplicationRequests::GetSelectedEntities);
+
+        AzToolsFramework::ToolsApplicationRequestBus::Broadcast(
+            &AzToolsFramework::ToolsApplicationRequests::DeleteEntitiesAndAllDescendants, selectedEntityIds);
+    }
+    else
+    {
+        CCryEditApp::instance()->DeleteSelectedEntities(includeDescendants);
+    }
 }
 
 AZ::EntityId SandboxIntegrationManager::CreateNewEntity(AZ::EntityId parentId)
@@ -1229,6 +1296,12 @@ AZ::EntityId SandboxIntegrationManager::CreateNewEntityAtPosition(const AZ::Vect
 
         // Select the new entity (and deselect others).
         AzToolsFramework::EntityIdList selection = { newEntity->GetId() };
+
+        auto selectionCommand =
+            AZStd::make_unique<AzToolsFramework::SelectionCommand>(selection, "");
+        selectionCommand->SetParent(undo.GetUndoBatch());
+        selectionCommand.release();
+
         EBUS_EVENT(AzToolsFramework::ToolsApplicationRequests::Bus, SetSelectedEntities, selection);
     }
 
@@ -1417,7 +1490,7 @@ void SandboxIntegrationManager::OnContextReset()
     }
 }
 
-void SandboxIntegrationManager::OnSliceInstantiated(const AZ::Data::AssetId& /*sliceAssetId*/, const AZ::SliceComponent::SliceInstanceAddress& sliceAddress, const AzFramework::SliceInstantiationTicket& /*ticket*/)
+void SandboxIntegrationManager::OnSliceInstantiated(const AZ::Data::AssetId& /*sliceAssetId*/, AZ::SliceComponent::SliceInstanceAddress& sliceAddress, const AzFramework::SliceInstantiationTicket& /*ticket*/)
 {
     // The instantiated slice isn't valid. Other systems will report this as an error.
     // Bail out here, this is nothing to track in this case.
@@ -1528,38 +1601,8 @@ void SandboxIntegrationManager::ContextMenu_NewEntity()
 
 AZ::EntityId SandboxIntegrationManager::ContextMenu_NewLayer()
 {
-    AzToolsFramework::ScopedUndoBatch undo("New Layer");
-    AZ::Entity* newEntity = nullptr;
     const int objectCount = GetIEditor()->GetObjectManager()->GetObjectCount();
     const AZStd::string name = AZStd::string::format("Layer%d", objectCount + 1);
-    AzToolsFramework::EditorEntityContextRequestBus::BroadcastResult(
-        newEntity,
-        &AzToolsFramework::EditorEntityContextRequestBus::Events::CreateEditorEntity,
-        name.c_str());
-
-    if (!newEntity)
-    {
-        AZ_Error("Editor", false, "Unable to create a layer entity.");
-        return AZ::EntityId();
-    }
-    m_unsavedEntities.insert(newEntity->GetId());
-
-    // Layers are not visible in the 3D viewport, turn them off.
-    // The outliner won't allow anyone to turn them back on.
-    AzToolsFramework::EditorVisibilityRequestBus::Event(
-        newEntity->GetId(),
-        &AzToolsFramework::EditorVisibilityRequests::SetVisibilityFlag,
-        false);
-
-    AzToolsFramework::EditorMetricsEventsBus::Broadcast(
-        &AzToolsFramework::EditorMetricsEventsBus::Events::EntityCreated,
-        newEntity->GetId());
-    AzToolsFramework::EntityIdList selection = { newEntity->GetId() };
-    AzToolsFramework::ToolsApplicationRequests::Bus::Broadcast(
-        &AzToolsFramework::ToolsApplicationRequests::Bus::Events::SetSelectedEntities,
-        selection);
-
-    AzToolsFramework::Layers::EditorLayerComponent* newLayer = aznew AzToolsFramework::Layers::EditorLayerComponent();
 
     // Make sure the color is created fully opaque.
     static QColor newLayerDefaultColor = GetIEditor()->GetColorByName("NewLayerDefaultColor");
@@ -1568,20 +1611,14 @@ AZ::EntityId SandboxIntegrationManager::ContextMenu_NewLayer()
         AZ::VectorFloat(newLayerDefaultColor.greenF()),
         AZ::VectorFloat(newLayerDefaultColor.blueF()),
         AZ::VectorFloat(newLayerDefaultColor.alphaF()));
-    newLayer->SetLayerColor(newLayerColor);
 
-    AZStd::vector<AZ::Component*> newComponents;
-    newComponents.push_back(newLayer);
-        
-    AzToolsFramework::Layers::EditorLayerCreationBus::Broadcast(
-        &AzToolsFramework::Layers::EditorLayerCreationBus::Events::OnNewLayerEntity,
-        *newEntity,
-        newComponents);
-
-    AzToolsFramework::EntityCompositionRequestBus::Broadcast(
-        &AzToolsFramework::EntityCompositionRequests::AddExistingComponentsToEntity,
-        newEntity,
-        newComponents);
+    AZ::Entity* newEntity = AzToolsFramework::Layers::EditorLayerComponent::CreateLayerEntity(name, newLayerColor);
+    if (newEntity == nullptr)
+    {
+        // CreateLayerEntity already handled reporting errors if it couldn't make a new layer.
+        return AZ::EntityId();
+    }
+    m_unsavedEntities.insert(newEntity->GetId());
     return newEntity->GetId();
 }
 
@@ -2316,7 +2353,7 @@ void SandboxIntegrationManager::MakeSliceFromEntities(const AzToolsFramework::En
 {
     // expand the list of entities to include all transform descendant entities
     AzToolsFramework::EntityIdSet entitiesAndDescendants;
-    AzToolsFramework::ToolsApplicationRequestBus::BroadcastResult(entitiesAndDescendants, 
+    AzToolsFramework::ToolsApplicationRequestBus::BroadcastResult(entitiesAndDescendants,
         &AzToolsFramework::ToolsApplicationRequestBus::Events::GatherEntitiesAndAllDescendents, entities);
 
     const AZStd::string slicesAssetsPath = "@devassets@/Slices";
@@ -2365,6 +2402,11 @@ void SandboxIntegrationManager::UnregisterViewPane(const char* name)
     QtViewPaneManager::instance()->UnregisterPane(name);
 }
 
+QWidget* SandboxIntegrationManager::GetViewPaneWidget(const char* viewPaneName)
+{
+    return FindViewPane<QWidget>(viewPaneName);
+}
+
 void SandboxIntegrationManager::OpenViewPane(const char* paneName)
 {
     const QtViewPane* pane = QtViewPaneManager::instance()->OpenPane(paneName);
@@ -2394,6 +2436,12 @@ void SandboxIntegrationManager::BrowseForAssets(AssetSelectionModel& selection)
 
 void SandboxIntegrationManager::GenerateCubemapForEntity(AZ::EntityId entityId, AZStd::string* cubemapOutputPath, bool hideEntity)
 {
+    GenerateCubemapWithIDForEntity(entityId, AZ::Uuid::CreateNull(), cubemapOutputPath, hideEntity, false);
+}
+
+void SandboxIntegrationManager::GenerateCubemapWithIDForEntity(AZ::EntityId entityId, AZ::Uuid cubemapId,
+                                                         AZStd::string* cubemapOutputPath, bool hideEntity, bool hasCubemapId)
+{
     AZ::u32 resolution = 0;
     EBUS_EVENT_ID_RESULT(resolution, entityId, LmbrCentral::EditorLightComponentRequestBus, GetCubemapResolution);
 
@@ -2406,7 +2454,15 @@ void SandboxIntegrationManager::GenerateCubemapForEntity(AZ::EntityId entityId, 
             QString levelfolder = GetIEditor()->GetGameEngine()->GetLevelPath();
             QString levelname = Path::GetFile(levelfolder).toLower();
             QString fullGameFolder = QString(Path::GetEditingGameDataFolder().c_str());
-            QString texturename = QStringLiteral("%1_cm.tif").arg(static_cast<qulonglong>(componentEntity->GetAssociatedEntityId()));
+            QString texturename;
+            if (hasCubemapId)
+            {
+                texturename = QStringLiteral("%1_cm.tif").arg(cubemapId.ToString<QString>(false, false));
+            }
+            else
+            {
+                texturename = QStringLiteral("%1_cm.tif").arg(static_cast<qulonglong>(componentEntity->GetAssociatedEntityId()));
+            }
             texturename = texturename.toLower();
 
             QString fullFolder = Path::SubDirectoryCaseInsensitive(fullGameFolder, {"textures", "cubemaps", levelname});
@@ -2940,6 +2996,12 @@ void SandboxIntegrationManager::DrawTextureLabel(ITexture* texture, const AZ::Ve
     }
 }
 
+void SandboxIntegrationManager::DrawTextureLabel(int textureId, const AZ::Vector3& pos, float sizeX, float sizeY, int texIconFlags)
+{
+    ITexture* texture = GetIEditor()->GetRenderer()->EF_GetTextureByID(textureId);
+    DrawTextureLabel(texture, pos, sizeX, sizeY, texIconFlags);
+}
+
 void SandboxIntegrationManager::SetLineWidth(float width)
 {
     if (m_dc)
@@ -3301,4 +3363,71 @@ AZ::EntityId SandboxIntegrationManager::FindCreatedEntityByExistingObject(const 
 
     AZ::Uuid parentEntityId = sourceObject->GetId();
     return FindCreatedEntity(parentEntityId, sourceObject->GetName().toUtf8().data());
+}
+
+bool SandboxIntegrationManager::IsNewViewportInteractionModelEnabled()
+{
+    return GetIEditor()->IsNewViewportInteractionModelEnabled();
+}
+
+bool SandboxIntegrationManager::DisplayHelpersVisible()
+{
+    return GetIEditor()->GetDisplaySettings()->IsDisplayHelpers();
+}
+
+bool SandboxIntegrationManager::CreateSurfaceTypeMaterialLibrary(const AZStd::string & targetFilePath)
+{
+    auto assetType = AZ::AzTypeInfo<Physics::MaterialLibraryAsset>::Uuid();
+
+    // Create File
+    AZ::Data::Asset<AZ::Data::AssetData> newAsset = AZ::Data::AssetManager::Instance().CreateAsset(AZ::Uuid::CreateRandom(), assetType);
+
+    AZ::IO::FileIOStream fileStream(targetFilePath.c_str(), AZ::IO::OpenMode::ModeWrite);
+    if (fileStream.IsOpen())
+    {
+        Physics::MaterialLibraryAsset* materialLibraryAsset = azrtti_cast<Physics::MaterialLibraryAsset*>(newAsset.GetData());
+        if (materialLibraryAsset)
+        {
+            // Enumerate through CryEngine surface types and create a Physics API material for each of them
+            ISurfaceTypeEnumerator* surfaceTypeEnumerator = GetIEditor()->Get3DEngine()->GetMaterialManager()->GetSurfaceTypeManager()->GetEnumerator();
+            if (surfaceTypeEnumerator)
+            {
+                for (ISurfaceType* pSurfaceType = surfaceTypeEnumerator->GetFirst(); pSurfaceType != nullptr;
+                    pSurfaceType = surfaceTypeEnumerator->GetNext())
+                {
+                    const ISurfaceType::SPhysicalParams& physicalParams = pSurfaceType->GetPhyscalParams();
+
+                    Physics::MaterialFromAssetConfiguration configuration;
+                    configuration.m_configuration = Physics::MaterialConfiguration();
+                    configuration.m_configuration.m_dynamicFriction = physicalParams.friction;
+                    configuration.m_configuration.m_staticFriction = physicalParams.friction;
+                    configuration.m_configuration.m_restitution = physicalParams.bouncyness;
+                    configuration.m_configuration.m_surfaceType = pSurfaceType->GetType();
+                    configuration.m_id = Physics::MaterialId::Create();
+
+                    materialLibraryAsset->AddMaterialData(configuration);
+                }
+            }
+
+            // check it out in the source control system
+            AzToolsFramework::SourceControlCommandBus::Broadcast(
+                &AzToolsFramework::SourceControlCommandBus::Events::RequestEdit, targetFilePath.c_str(), true,
+                [](bool /*success*/, const AzToolsFramework::SourceControlFileInfo& /*info*/) {});
+
+            // Save the material library asset into a file
+            auto assetHandler = const_cast<AZ::Data::AssetHandler*>(AZ::Data::AssetManager::Instance().GetHandler(assetType));
+            if (assetHandler->SaveAssetData(newAsset, &fileStream))
+            {
+                return true;
+            }
+            else
+            {
+                AZ_Error("Physics", false,
+                    "CreateSurfaceTypeMaterialLibrary: Unable to save Surface Types Material Library Asset to %s",
+                    targetFilePath.c_str());
+            }
+        }
+    }
+
+    return false;
 }

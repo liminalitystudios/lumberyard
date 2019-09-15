@@ -64,6 +64,8 @@ CryCriticalSection CTexture::s_xTexReloadLock;
 StaticInstance<CTexture::LowResSystemCopyType> CTexture::s_LowResSystemCopy;
 #endif
 
+StaticInstance<AZStd::mutex> CTexture::m_staticInvalidateCallbacksMutex;
+
 bool CTexture::m_bLoadedSystem;
 
 CTexture* CTexture::s_ptexMipColors_Diffuse;
@@ -332,6 +334,15 @@ CTexture::~CTexture()
 
 #ifdef TEXTURE_GET_SYSTEM_COPY_SUPPORT
     s_LowResSystemCopy.erase(this);
+#endif
+
+#if defined(USE_UNIQUE_MUTEX_PER_TEXTURE)
+    if (gEnv->IsEditor())
+    {
+        // Only the editor allocated a unique mutex per texture.
+        delete m_invalidateCallbacksMutex;
+        m_invalidateCallbacksMutex = nullptr;
+    }
 #endif
 }
 
@@ -2920,7 +2931,18 @@ void CTexture::LoadDefaultSystemTextures()
         #include "Provo/Texture_cpp_provo.inl"
     #endif
 #endif
+            
+#if defined(AZ_PLATFORM_IOS)
+            int nRTSceneDiffuseFlags =  nRTFlags;
+            static ICVar* pVar = gEnv->pConsole->GetCVar("e_ShadowsClearShowMaskAtLoad");
+            if (pVar && !pVar->GetIVal())
+            {
+                nRTSceneDiffuseFlags |= FT_USAGE_MEMORYLESS;
+            }
+            s_ptexSceneDiffuseAccMap = CTexture::CreateTextureObject("$SceneDiffuseAcc", 0, 0, 1, eTT_2D, nRTSceneDiffuseFlags, eTF_R8G8B8A8, TO_SCENE_DIFFUSE_ACC);
+#else
             s_ptexSceneDiffuseAccMap = CTexture::CreateTextureObject("$SceneDiffuseAcc", 0, 0, 1, eTT_2D, nRTFlags, eTF_R8G8B8A8, TO_SCENE_DIFFUSE_ACC);
+#endif
             s_ptexSceneSpecularAccMap = CTexture::CreateTextureObject("$SceneSpecularAcc", 0, 0, 1, eTT_2D, nRTFlags, eTF_R8G8B8A8, TO_SCENE_SPECULAR_ACC);
             s_ptexAmbientLookup = CTexture::CreateTextureObject("$AmbientLookup", 0, 0, 1, eTT_2D, nRTFlags, eTF_R8G8B8A8);
             s_ptexShadowMask = CTexture::CreateTextureObject("$ShadowMask", 0, 0, 1, eTT_2D, nRTFlags, eTF_R8G8B8A8, TO_SHADOWMASK);
@@ -3330,7 +3352,7 @@ void CTexture::InvalidateDeviceResource(uint32 dirtyFlags)
 {
     //In the editor, multiple worker threads could destroy device resource sets
     //which point to this texture. We need to lock to avoid a race-condition.
-    AZStd::lock_guard<AZStd::mutex> lockGuard(m_invalidateCallbacksMutex);
+    AZStd::lock_guard<AZStd::mutex> lockGuard(*m_invalidateCallbacksMutex);
 
     for (const auto& cb : m_invalidateCallbacks)
     {
@@ -3342,7 +3364,7 @@ void CTexture::AddInvalidateCallback(void* listener, InvalidateCallbackType call
 {
     //In the editor, multiple worker threads could destroy device resource sets
     //which point to this texture. We need to lock to avoid a race-condition.
-    AZStd::lock_guard<AZStd::mutex> lockGuard(m_invalidateCallbacksMutex);
+    AZStd::lock_guard<AZStd::mutex> lockGuard(*m_invalidateCallbacksMutex);
 
     m_invalidateCallbacks.insert(AZStd::pair<void*, InvalidateCallbackType>(listener, callback));
 }
@@ -3351,7 +3373,7 @@ void CTexture::RemoveInvalidateCallbacks(void* listener)
 {
     //In the editor, multiple worker threads could destroy device resource sets
     //which point to this texture. We need to lock to avoid a race-condition.
-    AZStd::lock_guard<AZStd::mutex> lockGuard(m_invalidateCallbacksMutex);
+    AZStd::lock_guard<AZStd::mutex> lockGuard(*m_invalidateCallbacksMutex);
 
     m_invalidateCallbacks.erase(listener);
 }

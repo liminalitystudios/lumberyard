@@ -23,7 +23,7 @@
 #include <AzCore/Asset/AssetManagerComponent.h>
 #include <AzCore/Jobs/JobManagerComponent.h>
 #include <Physics/PhysicsTests.h>
-#include <Tests/TestTypes.h>
+#include <AzCore/UnitTest/TestTypes.h>
 #include <RigidBodyComponent.h>
 #include <Material.h>
 #include <Physics/PhysicsGenericInterfaceTests.inl>
@@ -119,16 +119,18 @@ namespace Physics
         {
             m_pvdTransport->release();
         }
+
         m_transformComponentDescriptor.reset();
         m_serializeContext.reset();
         m_fileIo.reset();
+
         delete m_application;
         PhysicsTestEnvironment::TeardownEnvironment();
     }
 
     void GenericPhysicsInterfaceTest::SetUp()
     {
-        Physics::SystemRequestBus::BroadcastResult(m_defaultWorld, 
+        Physics::SystemRequestBus::BroadcastResult(m_defaultWorld,
             &Physics::SystemRequests::CreateWorld, AZ_CRC("UnitTestWorld", 0x39d5e465));
 
         Physics::DefaultWorldBus::Handler::BusConnect();
@@ -204,7 +206,7 @@ namespace Physics
 
         entity->Deactivate();
 
-        Physics::ColliderConfiguration colliderConfig; 
+        Physics::ColliderConfiguration colliderConfig;
         colliderConfig.m_collisionLayer = layer;
         Physics::BoxShapeConfiguration shapeConfig(dimensions);
         entity->CreateComponent<PhysX::BoxColliderComponent>(colliderConfig, shapeConfig);

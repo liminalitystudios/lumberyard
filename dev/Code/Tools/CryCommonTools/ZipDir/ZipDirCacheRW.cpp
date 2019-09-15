@@ -27,9 +27,14 @@
 
 #include <zlib.h>  // declaration of Z_OK for ZipRawDecompress
 #include <AzCore/std/parallel/mutex.h>
+#include <AzCore/std/smart_ptr/unique_ptr.h>
 #include <AzFramework/IO/LocalFileIO.h>
-
-using namespace ZipFile;
+#include <AzFramework/StringFunc/StringFunc.h>
+#include "Codec.h"
+#include <zstd.h>
+#include <lz4.h>
+#include <chrono>
+#include <ratio>
 
 enum PackFileStatus
 {
@@ -40,6 +45,12 @@ enum PackFileStatus
     PACKFILE_SKIPPED,
     PACKFILE_MISSING,
     PACKFILE_FAILED
+};
+
+enum PackFileCompressionPolicy
+{
+    PACKFILE_USE_REQUESTED_COMPRESSOR,
+    PACKFILE_USE_FASTEST_DECOMPRESSING_CODEC
 };
 
 class PackFilePool;
@@ -86,6 +97,7 @@ struct PackFileJob
     __int64 modTime;
     ZipDir::ErrorEnum zdError;
     PackFileStatus status;
+    PackFileCompressionPolicy compressionPolicy;
 
     PackFileJob()
         : index(0)
@@ -103,6 +115,7 @@ struct PackFileJob
         , modTime(0)
         , zdError(ZipDir::ZD_ERROR_NOT_IMPLEMENTED)
         , status(PACKFILE_FAILED)
+        , compressionPolicy(PACKFILE_USE_REQUESTED_COMPRESSOR)
     {
     }
 
@@ -122,13 +135,13 @@ struct PackFileJob
     {
         if (compressedData && compressedData != uncompressedData)
         {
-            free(compressedData);
+            azfree(compressedData);
             compressedData = 0;
         }
 
         if (uncompressedData)
         {
-            free(uncompressedData);
+            azfree(uncompressedData);
             uncompressedData = 0;
         }
     }
@@ -136,9 +149,7 @@ struct PackFileJob
 
 
 // ---------------------------------------------------------------------------
-
 static void PackFileFromDisc(PackFileJob* job);
-
 class PackFilePool
 {
 public:
@@ -324,7 +335,7 @@ static size_t CalculateAlignedHeaderOffset(const char* fileName, size_t currentO
     }
 
     // Local header is followed by filename
-    const size_t totalHeaderSize = sizeof(LocalFileHeader) + strlen(fileName);
+    const size_t totalHeaderSize = sizeof(ZipFile::LocalFileHeader) + strlen(fileName);
 
     // Align end of the header
     const size_t dataOffset = AlignTo(currentOffset + totalHeaderSize, alignment);
@@ -447,6 +458,196 @@ char* ZipDir::CacheRW::AllocPath(const char* pPath)
     return temp;
 }
 
+static bool UseZlibForFileType(const char* filename)
+{
+    AZStd::string f(filename);
+
+    //some files types are forced to use zlib
+    bool found = AzFramework::StringFunc::Path::IsExtension(filename, ".dds") || f.find("cover.ctc") != string::npos || AzFramework::StringFunc::Path::IsExtension(filename, ".uicanvas");
+
+    return found;
+}
+
+static const char* CodecAsString(CompressionCodec::Codec codec)
+{
+    switch (codec)
+    {
+    case CompressionCodec::Codec::ZLIB:
+        return "ZLIB";
+    case CompressionCodec::Codec::ZSTD:
+        return "ZSTD";
+    case CompressionCodec::Codec::LZ4:
+        return "LZ4";
+    }
+    return "ERROR";
+}
+
+static bool CompressData(PackFileJob *job)
+{
+    bool bUseZlib = UseZlibForFileType(job->relativePathSrc) || (job->compressionPolicy == PACKFILE_USE_REQUESTED_COMPRESSOR);
+
+    bool compressionSuccessful = true;
+
+    if (bUseZlib)
+    {
+        job->compressedSize = ZipDir::GetCompressedSizeEstimate(job->uncompressedSize,CompressionCodec::Codec::ZLIB);
+        job->compressedData = azmalloc(job->compressedSize);
+        int error = ZipDir::ZipRawCompress(job->uncompressedData, &job->compressedSize, job->compressedData, job->uncompressedSize, job->batch->compressionLevel);
+        if (error == Z_OK)
+        {
+            job->status = PACKFILE_COMPRESSED;
+            job->zdError = ZipDir::ZD_ERROR_SUCCESS;
+        }
+        else
+        {
+            compressionSuccessful = false;
+        }
+    }
+    else
+    {
+        unsigned long   compressedSize[static_cast<int>(CompressionCodec::Codec::NUM_CODECS)];
+        void*           compressedData[static_cast<int>(CompressionCodec::Codec::NUM_CODECS)];
+        std::chrono::milliseconds decompressionTime[static_cast<int>(CompressionCodec::Codec::NUM_CODECS)];
+        bool            compressionCodecWasSuccessful[static_cast<int>(CompressionCodec::Codec::NUM_CODECS)];
+
+        std::chrono::time_point<std::chrono::steady_clock> start;
+
+        //do compression
+        for (CompressionCodec::Codec codec : CompressionCodec::s_AllCodecs)
+        {
+            unsigned int index = static_cast<int>(codec);
+            compressedSize[index] = ZipDir::GetCompressedSizeEstimate(job->uncompressedSize, codec);
+            compressedData[index] = azmalloc(compressedSize[index]);
+            AZStd::unique_ptr<char[]> tempBuffer;
+            unsigned long tempSize = 0;
+
+            //some files decompress so fast they are beyond our ability to measure so we need to do it a few times to get a reading
+            int numTimesToDecompress = 1 + ZipDir::TARGET_MIN_TEST_COMPRESS_BYTES / job->uncompressedSize;
+
+            auto testDecompressionTime = [&tempSize, job, &tempBuffer, &start, &compressionCodecWasSuccessful, index, numTimesToDecompress, &compressedData, &compressedSize, &decompressionTime]() {
+                tempSize = job->uncompressedSize;
+                tempBuffer = AZStd::make_unique<char[]>(tempSize);
+                start = std::chrono::high_resolution_clock::now();
+
+                //start by assuming the decompression test is never going to result in an error
+                compressionCodecWasSuccessful[index] = true;
+
+                for (int i = 0; i < numTimesToDecompress; i++)
+                {
+                    int zerror = ZipDir::ZipRawUncompress(tempBuffer.get(), &tempSize, compressedData[index], compressedSize[index]);
+                    if (zerror != Z_OK)
+                    {
+                        compressionCodecWasSuccessful[index] = false;
+                        break;
+                    }
+                }
+                decompressionTime[index] = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - start);
+            };
+
+            switch (codec)
+            {
+            case CompressionCodec::Codec::ZLIB:
+                if (ZipDir::ZipRawCompress(job->uncompressedData, &compressedSize[index], compressedData[index], job->uncompressedSize, job->batch->compressionLevel) == Z_OK)
+                {
+                    testDecompressionTime();
+                }
+                else
+                {
+                    compressionCodecWasSuccessful[index] = false;
+                }
+                break;
+
+            case CompressionCodec::Codec::ZSTD:
+                if (ZipDir::ZipRawCompressZSTD(job->uncompressedData, &compressedSize[index], compressedData[index], job->uncompressedSize, 1) == Z_OK)
+                {
+                    testDecompressionTime();
+                }
+                else
+                {
+                    compressionCodecWasSuccessful[index] = false;
+                }
+                break;
+
+            case CompressionCodec::Codec::LZ4:
+                if (ZipDir::ZipRawCompressLZ4(job->uncompressedData, &compressedSize[index], compressedData[index], job->uncompressedSize, job->batch->compressionLevel) == Z_OK)
+                {
+                    testDecompressionTime();
+                }
+                else
+                {
+                    compressionCodecWasSuccessful[index] = false;
+                }
+
+                break;
+
+            default:
+                break;
+            }
+        }
+
+        //check decompression speed
+        int bestTimeIndex = -1;
+        int numberOfSuccessfulCodecs = 0;
+        for (CompressionCodec::Codec codec : CompressionCodec::s_AllCodecs)
+        {
+            int index = static_cast<int>(codec);
+            if (compressionCodecWasSuccessful[index])
+            {
+                numberOfSuccessfulCodecs++;
+                if (bestTimeIndex == -1)
+                {
+                    bestTimeIndex = index;
+                    continue;
+                }
+                if ((decompressionTime[index] < decompressionTime[bestTimeIndex]))
+                {
+                    bestTimeIndex = index;
+                }
+            }
+        }
+
+        if (!numberOfSuccessfulCodecs)
+        {
+            AZ_Error("ZipDirCacheRW", false, "None of the available codecs were able to compress the file: %s", job->relativePathSrc);
+            compressionSuccessful = false;
+        }
+        else
+        {
+#ifdef AZ_DEBUG_BUILD        
+            AZ_Printf("ZipDirCacheRW", "Winner for %s is %s with: %d ms ", job->realFilename, CodecAsString(static_cast<CompressionCodec::Codec>(bestTimeIndex)), decompressionTime[bestTimeIndex]);
+#endif
+        }
+
+        //get rid of losing data
+        for (CompressionCodec::Codec codec : CompressionCodec::s_AllCodecs)
+        {
+            int index = static_cast<int>(codec);
+            if (index != bestTimeIndex)
+            {
+                azfree(compressedData[index]);
+                compressedData[index] = nullptr;
+            }
+        }
+
+        if (compressionSuccessful)
+        {
+            job->compressedSize = compressedSize[bestTimeIndex];
+            job->compressedData = compressedData[bestTimeIndex];
+        }
+    }
+
+    //if there was a problem with the compression so just store the file
+    if (!compressionSuccessful)
+    {
+        azfree(job->compressedData);
+        job->compressedData = job->uncompressedData;
+        job->compressedSize = job->uncompressedSize;
+    }
+    job->status = PACKFILE_COMPRESSED;
+    job->zdError = ZipDir::ZD_ERROR_SUCCESS;
+    return true;
+}
+
 static void PackFileFromMemory(PackFileJob* job)
 {
     if (job->existingCRC != 0)
@@ -465,25 +666,13 @@ static void PackFileFromMemory(PackFileJob* job)
 
     switch (job->batch->compressionMethod)
     {
-    case METHOD_DEFLATE_AND_ENCRYPT:
-    case METHOD_DEFLATE:
+    case ZipFile::METHOD_DEFLATE_AND_ENCRYPT:
+    case ZipFile::METHOD_DEFLATE:
     {
         // allocate memory for compression. Min is nSize * 1.001 + 12
         if (job->uncompressedSize > 0)
         {
-            job->compressedSize = job->uncompressedSize + (job->uncompressedSize >> 3) + 32;
-            job->compressedData = malloc(job->compressedSize);
-            int error = ZipDir::ZipRawCompress(job->uncompressedData, &job->compressedSize, job->compressedData, job->uncompressedSize, job->batch->compressionLevel);
-            if (error == Z_OK)
-            {
-                job->status = PACKFILE_COMPRESSED;
-                job->zdError = ZipDir::ZD_ERROR_SUCCESS;
-            }
-            else
-            {
-                job->status = PACKFILE_FAILED;
-                job->zdError = ZipDir::ZD_ERROR_ZLIB_FAILED;
-            }
+            CompressData(job);
         }
         else
         {
@@ -495,7 +684,7 @@ static void PackFileFromMemory(PackFileJob* job)
         }
         break;
     }
-    case METHOD_STORE:
+    case ZipFile::METHOD_STORE:
         job->compressedData = job->uncompressedData;
         job->compressedSize = job->uncompressedSize;
         job->status = PACKFILE_COMPRESSED;
@@ -693,7 +882,7 @@ void ZipDir::CacheRW::StorePackedFile(PackFileJob* job)
         return;
     }
 
-    const bool encrypt = pFileEntry->nMethod == METHOD_DEFLATE_AND_ENCRYPT;
+    const bool encrypt = pFileEntry->nMethod == ZipFile::METHOD_DEFLATE_AND_ENCRYPT;
 
     if (!WriteCompressedData((char*)job->compressedData, job->compressedSize, encrypt, m_pFile))
     {
@@ -782,7 +971,7 @@ static FILETIME GetFileWriteTimeAndSize(uint64* fileSize, const char* filename)
         }
         FindClose(hFind);
     }
-#elif defined(AZ_PLATFORM_APPLE) || defined(AZ_PLATFORM_LINUX)
+#elif AZ_TRAIT_OS_PLATFORM_APPLE || defined(AZ_PLATFORM_LINUX)
     //We cant use this implmentation for the windows version because ModificationTime
     //returns the time filename was changed(ChangeTime) not last written into(LastWriteTime).
     //If LocalFileIO ever adds support for LastWriteTime we can have a common implementation.
@@ -803,7 +992,6 @@ static FILETIME GetFileWriteTimeAndSize(uint64* fileSize, const char* filename)
 #endif
     return fileTime;
 }
-
 static void PackFileFromDisc(PackFileJob* job)
 {
     const FILETIME ft = GetFileWriteTimeAndSize(0, job->realFilename);
@@ -824,7 +1012,7 @@ static void PackFileFromDisc(PackFileJob* job)
     fseek(f, 0, SEEK_END);
     size_t fileSize = (size_t)ftell(f);
 
-    if (fileSize < job->batch->sourceMinSize || (job->batch->sourceMaxSize > 0 && fileSize > job->batch->sourceMaxSize))
+    if ((fileSize < job->batch->sourceMinSize) || (job->batch->sourceMaxSize > 0 && fileSize > job->batch->sourceMaxSize))
     {
         fclose(f);
 
@@ -833,18 +1021,26 @@ static void PackFileFromDisc(PackFileJob* job)
         return;
     }
 
-    job->uncompressedData = malloc(fileSize);
-
-    fseek(f, 0, SEEK_SET);
-    if (fread(job->uncompressedData, 1, fileSize, f) != fileSize)
+    if (!fileSize)
     {
-        free(job->uncompressedData);
-        job->uncompressedData = 0;
-        fclose(f);
+        //Allow 0-Bytes long files.
+        job->uncompressedData = nullptr;
+    }
+    else
+    {
+        job->uncompressedData = azmalloc(fileSize);
 
-        job->status = PACKFILE_FAILED;
-        job->zdError = ZipDir::ZD_ERROR_IO_FAILED;
-        return;
+        fseek(f, 0, SEEK_SET);
+        if (fread(job->uncompressedData, 1, fileSize, f) != fileSize)
+        {
+            azfree(job->uncompressedData);
+            job->uncompressedData = 0;
+            fclose(f);
+
+            job->status = PACKFILE_FAILED;
+            job->zdError = ZipDir::ZD_ERROR_IO_FAILED;
+            return;
+        }
     }
     fclose(f);
     job->uncompressedSize = fileSize;
@@ -854,16 +1050,16 @@ static void PackFileFromDisc(PackFileJob* job)
 
 bool ZipDir::CacheRW::UpdateMultipleFiles(const char** realFilenames, const char** filenamesInZip, size_t fileCount,
     int compressionLevel, bool encryptContent, size_t zipMaxSize, int sourceMinSize, int sourceMaxSize,
-    unsigned numExtraThreads, ZipDir::IReporter* reporter, ZipDir::ISplitter* splitter)
+    unsigned numExtraThreads, ZipDir::IReporter* reporter, ZipDir::ISplitter* splitter, bool useFastestDecompressionCodec)
 {
-    int compressionMethod = METHOD_DEFLATE;
+    int compressionMethod = ZipFile::METHOD_DEFLATE;
     if (encryptContent)
     {
-        compressionMethod = METHOD_DEFLATE_AND_ENCRYPT;
+        compressionMethod = ZipFile::METHOD_DEFLATE_AND_ENCRYPT;
     }
     else if (compressionLevel == 0)
     {
-        compressionMethod = METHOD_STORE;
+        compressionMethod = ZipFile::METHOD_STORE;
     }
 
     uint64 totalSize = 0;
@@ -891,6 +1087,7 @@ bool ZipDir::CacheRW::UpdateMultipleFiles(const char** realFilenames, const char
         job.relativePathSrc = filenameInZip;
         job.realFilename = realFilename;
         job.batch = &batch;
+        job.compressionPolicy = useFastestDecompressionCodec ? PACKFILE_USE_FASTEST_DECOMPRESSING_CODEC : PACKFILE_USE_REQUESTED_COMPRESSOR;
 
         {
             // crc will be used to check if this file need to be updated at all
@@ -1053,7 +1250,7 @@ ZipDir::ErrorEnum ZipDir::CacheRW::StartContinuousFileUpdate(const char* szRelat
         return ZD_ERROR_INVALID_PATH;
     }
 
-    pFileEntry->OnNewFileData (NULL, nSize, nSize, METHOD_STORE, false);
+    pFileEntry->OnNewFileData (NULL, nSize, nSize, ZipFile::METHOD_STORE, false);
     // since we changed the time, we'll have to update CDR
     m_nFlags |= FLAGS_CDR_DIRTY;
 
@@ -1145,7 +1342,7 @@ ZipDir::ErrorEnum ZipDir::CacheRW::UpdateFileContinuousSegment (const char* szRe
         return ZD_ERROR_INVALID_PATH;
     }
 
-    pFileEntry->OnNewFileData (pUncompressed, nSegmentSize, nSegmentSize, METHOD_STORE, true);
+    pFileEntry->OnNewFileData (pUncompressed, nSegmentSize, nSegmentSize, ZipFile::METHOD_STORE, true);
     // since we changed the time, we'll have to update CDR
     m_nFlags |= FLAGS_CDR_DIRTY;
 
@@ -1379,7 +1576,7 @@ ZipDir::ErrorEnum ZipDir::CacheRW::ReadFile (FileEntry* pFileEntry, void* pCompr
             return ZD_ERROR_INVALID_CALL;
         }
 
-        pBuffer = malloc(pFileEntry->desc.lSizeCompressed);
+        pBuffer = azmalloc(pFileEntry->desc.lSizeCompressed);
         pBufferDestroyer.Attach(pBuffer); // we want it auto-freed once we return
     }
 
@@ -1388,7 +1585,7 @@ ZipDir::ErrorEnum ZipDir::CacheRW::ReadFile (FileEntry* pFileEntry, void* pCompr
         return ZD_ERROR_IO_FAILED;
     }
 
-    if (pFileEntry->nMethod == METHOD_DEFLATE_AND_ENCRYPT)
+    if (pFileEntry->nMethod == ZipFile::METHOD_DEFLATE_AND_ENCRYPT)
     {
         ZipDir::Decrypt((char*)pBuffer, pFileEntry->desc.lSizeCompressed, m_encryptionKey);
     }
@@ -1634,7 +1831,7 @@ bool ZipDir::CacheRW::RelinkZip(FILE* fTmp)
             return false;
         }
 
-        if (entry->nMethod == METHOD_DEFLATE_AND_ENCRYPT)
+        if (entry->nMethod == ZipFile::METHOD_DEFLATE_AND_ENCRYPT)
         {
             ZipDir::Decrypt((char*)pFile->GetData(), entry->desc.lSizeCompressed, m_encryptionKey);
         }
@@ -1699,7 +1896,7 @@ bool ZipDir::CacheRW::WriteZipFiles(std::vector<FileDataRecordPtr>& queFiles, FI
         ;
 
         // write the compressed file data
-        const bool encrypt = (*it)->pFileEntry->nMethod == METHOD_DEFLATE_AND_ENCRYPT;
+        const bool encrypt = (*it)->pFileEntry->nMethod == ZipFile::METHOD_DEFLATE_AND_ENCRYPT;
         if (!WriteCompressedData((char*)(*it)->GetData(), (*it)->pFileEntry->desc.lSizeCompressed, encrypt, fTmp))
         {
             return false;
@@ -1721,7 +1918,7 @@ void TruncateFile(FILE* file, size_t newLength)
 #if defined(AZ_PLATFORM_WINDOWS)
     int filedes = _fileno(file);
     _chsize_s(filedes, newLength);
-#elif defined(AZ_PLATFORM_APPLE) || defined(AZ_PLATFORM_LINUX)
+#elif AZ_TRAIT_OS_PLATFORM_APPLE || defined(AZ_PLATFORM_LINUX)
     ftruncate(fileno(file), newLength);
 #else
 #error Not implemented!
@@ -1782,24 +1979,24 @@ bool ZipDir::CacheRW::EncryptArchive(EncryptionChange change, IEncryptPredicate*
         ZipFile::ushort newMethod = oldMethod;
         if (change == ENCRYPT)
         {
-            if (entry->nMethod == METHOD_DEFLATE)
+            if (entry->nMethod == ZipFile::METHOD_DEFLATE)
             {
-                newMethod = METHOD_DEFLATE_AND_ENCRYPT;
+                newMethod = ZipFile::METHOD_DEFLATE_AND_ENCRYPT;
             }
         }
         else
         {
-            if (entry->nMethod == METHOD_DEFLATE_AND_ENCRYPT)
+            if (entry->nMethod == ZipFile::METHOD_DEFLATE_AND_ENCRYPT)
             {
-                newMethod = METHOD_DEFLATE;
+                newMethod = ZipFile::METHOD_DEFLATE;
             }
         }
 
         // allow encryption only for matching files
-        if (newMethod == METHOD_DEFLATE_AND_ENCRYPT &&
+        if (newMethod == ZipFile::METHOD_DEFLATE_AND_ENCRYPT &&
             (!encryptContentPredicate || !encryptContentPredicate->Match(it->strPath.c_str())))
         {
-            newMethod = METHOD_DEFLATE;
+            newMethod = ZipFile::METHOD_DEFLATE;
         }
 
         entry->nMethod = newMethod;
@@ -1844,7 +2041,7 @@ bool ZipDir::CacheRW::EncryptArchive(EncryptionChange change, IEncryptPredicate*
             return false;
         }
 
-        if (oldMethod == METHOD_DEFLATE_AND_ENCRYPT)
+        if (oldMethod == ZipFile::METHOD_DEFLATE_AND_ENCRYPT)
         {
             ZipDir::Decrypt((char*)pFile->GetData(), entry->desc.lSizeCompressed, m_encryptionKey);
         }
@@ -1858,7 +2055,7 @@ bool ZipDir::CacheRW::EncryptArchive(EncryptionChange change, IEncryptPredicate*
             return false;
         }
 
-        const bool encryptContent = newMethod == METHOD_DEFLATE_AND_ENCRYPT;
+        const bool encryptContent = newMethod == ZipFile::METHOD_DEFLATE_AND_ENCRYPT;
         if (!WriteCompressedData((const char*)pFile->GetData(), entry->desc.lSizeCompressed, encryptContent, m_pFile))
         {
             return false;
@@ -1896,13 +2093,6 @@ bool ZipDir::CacheRW::EncryptArchive(EncryptionChange change, IEncryptPredicate*
     {
         TruncateFile(m_pFile, endOfCDR);
     }
-
-#if 0
-    if (unusedSpace > 0)
-    {
-        RCLog("Archive contains %i bytes of uncompacted space.", (int)unusedSpace);
-    }
-#endif
 
     fclose(m_pFile);
     m_pFile = 0;

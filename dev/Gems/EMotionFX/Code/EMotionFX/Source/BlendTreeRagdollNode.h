@@ -61,7 +61,7 @@ namespace EMotionFX
         void Reinit() override;
         bool InitAfterLoading(AnimGraph* animGraph) override;
 
-        uint32 GetVisualColor() const override                          { return MCore::RGBA(206, 175, 148); }
+        AZ::Color GetVisualColor() const override                       { return AZ::Color(0.81f, 0.69f, 0.58f, 1.0f); }
         const char* GetPaletteName() const override                     { return "Activate Ragdoll Joints"; }
         AnimGraphObject::ECategory GetPaletteCategory() const override  { return AnimGraphObject::CATEGORY_PHYSICS; }
 
@@ -74,6 +74,7 @@ namespace EMotionFX
         bool GetHasOutputPose() const override                          { return true; }
 
         AZStd::vector<AZStd::string>& GetSimulatedJointNames()          { return m_simulatedJointNames; }
+        bool IsActivated(AnimGraphInstance* animGraphInstance) const;
 
         static void Reflect(AZ::ReflectContext* context);
 

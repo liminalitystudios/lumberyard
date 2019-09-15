@@ -9,7 +9,6 @@
 * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 *
 */
-#ifndef AZ_UNITY_BUILD
 
 #include <AzCore/Math/Transform.h>
 #include <AzCore/Math/Quaternion.h>
@@ -299,7 +298,7 @@ AZ::Transform Transform::CreateLookAt(const AZ::Vector3& from, const AZ::Vector3
     // If 'look-at' vector is zero, error and return Identity transform.
     if (targetForward.IsZero())
     {
-        AZ_Assert(!targetForward.IsZero(), "Can't create look-at transform when 'to' and 'from' positions are equal!");
+        AZ_Error("Transform", !targetForward.IsZero(), "Can't create look-at transform when 'to' and 'from' positions are equal!");
         return transform;
     }
 
@@ -385,5 +384,3 @@ AZ::Transform AZ::ConvertEulerDegreesToTransformPrecise(const AZ::Vector3& euler
     finalRotation.SetFromEulerDegreesPrecise(eulerDegrees);
     return finalRotation;
 }
-
-#endif // #ifndef AZ_UNITY_BUILD

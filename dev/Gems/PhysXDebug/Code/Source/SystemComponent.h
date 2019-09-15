@@ -25,7 +25,7 @@
 #include <AzFramework/Physics/SystemBus.h>
 
 #ifdef IMGUI_ENABLED
-#include <ImGui/imgui.h>
+#include <imgui/imgui.h>
 #include <ImGuiBus.h>
 #endif // #ifdef IMGUI_ENABLED
 

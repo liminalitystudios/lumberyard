@@ -17,6 +17,7 @@
 #include <AzCore/RTTI/BehaviorContext.h>
 #include <AzFramework/Entity/EntityContext.h>
 #include <AzFramework/Components/TransformComponent.h>
+#include <AzFramework/API/ApplicationAPI.h>
 
 #include "GameEntityContextComponent.h"
 
@@ -197,11 +198,28 @@ namespace AzFramework
     {
         EntityContext::OnContextEntitiesAdded(entities);
 
+    #if (AZ_TRAIT_PUMP_SYSTEM_EVENTS_WHILE_LOADING)
+        auto timeOfLastEventPump = AZStd::chrono::high_resolution_clock::now();
+        auto PumpSystemEventsIfNeeded = [&timeOfLastEventPump]()
+        {
+            static const AZStd::chrono::milliseconds maxMillisecondsBetweenSystemEventPumps(AZ_TRAIT_PUMP_SYSTEM_EVENTS_WHILE_LOADING_INTERVAL_MS);
+            const auto now = AZStd::chrono::high_resolution_clock::now();
+            if (now - timeOfLastEventPump > maxMillisecondsBetweenSystemEventPumps)
+            {
+                timeOfLastEventPump = now;
+                ApplicationRequests::Bus::Broadcast(&ApplicationRequests::PumpSystemEventLoopUntilEmpty);
+            }
+        };
+    #endif // (AZ_TRAIT_PUMP_SYSTEM_EVENTS_WHILE_LOADING)
+
         for (AZ::Entity* entity : entities)
         {
             if (entity->GetState() == AZ::Entity::ES_CONSTRUCTED)
             {
                 entity->Init();
+            #if (AZ_TRAIT_PUMP_SYSTEM_EVENTS_WHILE_LOADING)
+                PumpSystemEventsIfNeeded();
+            #endif // (AZ_TRAIT_PUMP_SYSTEM_EVENTS_WHILE_LOADING)
             }
         }
 
@@ -212,6 +230,9 @@ namespace AzFramework
                 if (entity->IsRuntimeActiveByDefault())
                 {
                     entity->Activate();
+                #if (AZ_TRAIT_PUMP_SYSTEM_EVENTS_WHILE_LOADING)
+                    PumpSystemEventsIfNeeded();
+                #endif // (AZ_TRAIT_PUMP_SYSTEM_EVENTS_WHILE_LOADING)
                 }
             }
         }
@@ -295,10 +316,11 @@ namespace AzFramework
         AZ::SliceComponent* rootSlice = GetRootSlice();
         if (rootSlice)
         {
-            AZ::SliceComponent::SliceInstanceAddress address = rootSlice->FindSlice(id);
-            if (address.IsValid())
+            const auto address = rootSlice->FindSlice(id);
+            if (address.GetInstance())
             {
-                const auto instantiatedSliceEntities = address.GetInstance()->GetInstantiated();
+                auto sliceInstance = address.GetInstance();
+                const auto instantiatedSliceEntities = sliceInstance->GetInstantiated();
                 if (instantiatedSliceEntities)
                 {
                     for (AZ::Entity* currentEntity : instantiatedSliceEntities->m_entities)
@@ -330,7 +352,6 @@ namespace AzFramework
         return false;
     }
 
-    //========================================
     //=========================================================================
     // GameEntityContextComponent::ActivateGameEntity
     //=========================================================================
@@ -417,7 +438,7 @@ namespace AzFramework
         return entityName;
     }
 
-	//=========================================================================
+    //=========================================================================
     // GameEntityContextRequestBus::MarkEntityForNoActivation
     //=========================================================================
     void GameEntityContextComponent::MarkEntityForNoActivation(AZ::EntityId entityId)
@@ -440,14 +461,14 @@ namespace AzFramework
     //=========================================================================
     void GameEntityContextComponent::OnSlicePreInstantiate(const AZ::Data::AssetId& /*sliceAssetId*/, const AZ::SliceComponent::SliceInstanceAddress& sliceAddress)
     {
-        const SliceInstantiationTicket& ticket = *SliceInstantiationResultBus::GetCurrentBusId();
+        const SliceInstantiationTicket ticket = *SliceInstantiationResultBus::GetCurrentBusId();
 
         auto instantiatingIter = m_instantiatingDynamicSlices.find(ticket);
         if (instantiatingIter != m_instantiatingDynamicSlices.end())
         {
             InstantiatingDynamicSliceInfo& instantiating = instantiatingIter->second;
 
-                const AZ::SliceComponent::EntityList& entities = sliceAddress.GetInstance()->GetInstantiated()->m_entities;
+            const AZ::SliceComponent::EntityList& entities = sliceAddress.GetInstance()->GetInstantiated()->m_entities;
 
             // If the context was loaded from a stream and Ids were remapped, fix up entity Ids in that slice that
             // point to entities in the stream (i.e. level entities).
@@ -493,7 +514,7 @@ namespace AzFramework
     //=========================================================================
     void GameEntityContextComponent::OnSliceInstantiated(const AZ::Data::AssetId& sliceAssetId, const AZ::SliceComponent::SliceInstanceAddress& instance)
     {
-        const SliceInstantiationTicket& ticket = *SliceInstantiationResultBus::GetCurrentBusId();
+        const SliceInstantiationTicket ticket = *SliceInstantiationResultBus::GetCurrentBusId();
 
         if (m_instantiatingDynamicSlices.erase(ticket) > 0)
         {
@@ -508,7 +529,7 @@ namespace AzFramework
     //=========================================================================
     void GameEntityContextComponent::OnSliceInstantiationFailed(const AZ::Data::AssetId& sliceAssetId)
     {
-        const SliceInstantiationTicket& ticket = *SliceInstantiationResultBus::GetCurrentBusId();
+        const SliceInstantiationTicket ticket = *SliceInstantiationResultBus::GetCurrentBusId();
 
         if (m_instantiatingDynamicSlices.erase(ticket) > 0)
         {
@@ -516,6 +537,5 @@ namespace AzFramework
         }
 
         SliceInstantiationResultBus::MultiHandler::BusDisconnect(ticket);
-
     }
 } // namespace AzFramework

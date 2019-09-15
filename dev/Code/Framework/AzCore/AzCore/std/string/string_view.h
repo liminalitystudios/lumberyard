@@ -386,10 +386,6 @@ namespace AZStd
             rshorten(n);
         }
 
-        // Forward declare in string_view.h, implemented in string.h to avoid string_view having to include string.h
-        template<class Allocator = AZStd::allocator>
-        basic_string<value_type, traits_type, Allocator> to_string(Allocator alloc = Allocator()) const;
-
         basic_string_view& operator=(const basic_string_view& s) { if (&s != this) { m_begin = s.m_begin; m_end = s.m_end; } return *this; }
         basic_string_view& operator=(const_pointer s) { return *this = basic_string_view(s); }
 
@@ -688,13 +684,8 @@ namespace AZStd
     template<class RandomAccessIterator>
     AZ_FORCE_INLINE AZStd::size_t hash_string(RandomAccessIterator first, AZStd::size_t length)
     {
-#ifdef AZ_OS64
         size_t hash = 14695981039346656037ULL;
         const size_t fnvPrime = 1099511628211ULL;
-#else
-        size_t hash = 2166136261U;
-        const size_t fnvPrime = 16777619U;
-#endif
         const char* cptr = reinterpret_cast<const char*>(&(*first));
         for (; length; --length)
         {

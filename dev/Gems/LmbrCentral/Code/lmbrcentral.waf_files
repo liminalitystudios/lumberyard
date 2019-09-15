@@ -28,14 +28,21 @@
         "Include/Audio": [
             "include/LmbrCentral/Audio/AudioEnvironmentComponentBus.h",
             "include/LmbrCentral/Audio/AudioListenerComponentBus.h",
+            "include/LmbrCentral/Audio/AudioMultiPositionComponentBus.h",
             "include/LmbrCentral/Audio/AudioPreloadComponentBus.h",
             "include/LmbrCentral/Audio/AudioProxyComponentBus.h",
             "include/LmbrCentral/Audio/AudioRtpcComponentBus.h",
             "include/LmbrCentral/Audio/AudioSwitchComponentBus.h",
+            "include/LmbrCentral/Audio/AudioSystemComponentBus.h",
             "include/LmbrCentral/Audio/AudioTriggerComponentBus.h"
         ],
         "Include/Geometry": [
             "include/LmbrCentral/Geometry/GeometrySystemComponentBus.h"
+        ],
+        "Include/Dependency" : [
+            "include/LmbrCentral/Dependency/DependencyMonitor.h",
+            "include/LmbrCentral/Dependency/DependencyMonitor.inl",
+            "include/LmbrCentral/Dependency/DependencyNotificationBus.h"
         ],
         "Include/Physics": [
             "include/LmbrCentral/Physics/ColliderComponentBus.h",
@@ -46,7 +53,8 @@
             "include/LmbrCentral/Physics/ForceVolumeRequestBus.h",
             "include/LmbrCentral/Physics/PhysicsComponentBus.h",
             "include/LmbrCentral/Physics/PhysicsSystemComponentBus.h",
-            "include/LmbrCentral/Physics/RagdollPhysicsBus.h"
+            "include/LmbrCentral/Physics/RagdollPhysicsBus.h",
+            "include/LmbrCentral/Physics/WaterNotificationBus.h"
         ],
         "Include/Rendering": [
             "include/LmbrCentral/Rendering/DecalComponentBus.h",
@@ -123,6 +131,8 @@
             "Source/Audio/AudioEnvironmentComponent.cpp",
             "Source/Audio/AudioListenerComponent.h",
             "Source/Audio/AudioListenerComponent.cpp",
+            "Source/Audio/AudioMultiPositionComponent.h",
+            "Source/Audio/AudioMultiPositionComponent.cpp",
             "Source/Audio/AudioPreloadComponent.h",
             "Source/Audio/AudioPreloadComponent.cpp",
             "Source/Audio/AudioProxyComponent.h",
@@ -131,6 +141,8 @@
             "Source/Audio/AudioRtpcComponent.cpp",
             "Source/Audio/AudioSwitchComponent.h",
             "Source/Audio/AudioSwitchComponent.cpp",
+            "Source/Audio/AudioSystemComponent.h",
+            "Source/Audio/AudioSystemComponent.cpp",
             "Source/Audio/AudioTriggerComponent.h",
             "Source/Audio/AudioTriggerComponent.cpp"
         ],

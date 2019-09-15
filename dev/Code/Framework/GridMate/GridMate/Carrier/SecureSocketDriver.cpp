@@ -9,17 +9,20 @@
 * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 *
 */
-#ifndef AZ_UNITY_BUILD
 
 #include <AzCore/PlatformDef.h>
+#include <AzCore/Casting/numeric_cast.h>
 #include <AzCore/std/string/memorytoascii.h>
 #include <GridMate/Carrier/SecureSocketDriver.h>
 #include <GridMate/Serialize/Buffer.h>
 #include <GridMate/Serialize/DataMarshal.h>
 
+#include <GridMate_Traits_Platform.h>
+
 //#define PRINT_IPADDRESS
 
-#if defined(AZ_PLATFORM_WINDOWS) || defined(AZ_PLATFORM_LINUX)
+#if AZ_TRAIT_GRIDMATE_SECURE_SOCKET_DRIVER_HOOK_ENABLED
+#include <openssl/ossl_typ.h>
 #include <openssl/ssl.h>
 #include <openssl/err.h>
 #include <openssl/bio.h>
@@ -56,7 +59,7 @@ namespace GridMate
         const AZ::u8 kExpectedCookieSize = 20;
 
         // Unpacking
-        //
+        // 
         template<typename TOut, size_t TBitsOffset>
         AZ_INLINE static TOut UnpackByte(ReadBuffer& input)
         {
@@ -172,7 +175,7 @@ namespace GridMate
             AZ::u16 m_epoch;                 // [ 3]    2
             AZ::u64 m_sequenceNumber;        // [ 5]    6
             AZ::u16 m_length;                // [11]    2
-
+            
             RecordHeader()
                 : kExpectedSize(13)
             {
@@ -215,7 +218,7 @@ namespace GridMate
                 : kExpectedSize(12)
             {
             }
-
+            
             bool Unpack(ReadBuffer& readBuffer)
             {
                 if (!RecordHeader::Unpack(readBuffer))
@@ -296,9 +299,9 @@ namespace GridMate
             AZ::u8 m_cookieSize;                     // [27] 1
             AZ::u8 m_cookie[MAX_COOKIE_LENGTH];      // [29] up to 255
 
-            HelloVerifyRequest()
-                // The server_version field has the same syntax as in TLS.However, in order to avoid the requirement to do
-                // version negotiation in the initial handshake, DTLS 1.2 server implementations SHOULD use DTLS version 1.0
+            HelloVerifyRequest() 
+                // The server_version field has the same syntax as in TLS.However, in order to avoid the requirement to do 
+                // version negotiation in the initial handshake, DTLS 1.2 server implementations SHOULD use DTLS version 1.0 
                 // regardless of the version of TLS that is expected to be negotiated.
                 : kFragmentLength(sizeof(m_serverVersion) + sizeof(m_cookieSize) + kExpectedCookieSize)
                 , m_serverVersion(DTLS1_VERSION)
@@ -409,7 +412,7 @@ namespace GridMate
                 switch(bytes[0])
                 {
                 case SSL3_RT_APPLICATION_DATA:  return "AppData";
-                case TLS1_RT_HEARTBEAT:         return "HeartBeat";
+                case DTLS1_RT_HEARTBEAT:        return "HeartBeat";
                 case SSL3_RT_ALERT:             return "Alert";
                 default:                        return "Unknown";
                 }
@@ -613,8 +616,8 @@ namespace GridMate
             AZ_Printf("GridMateSecure", "Certinfo: Issuer:\"%s\" Serial:%s Not Before:%s Not After:%s\n",
                 X509NameToString(X509_get_issuer_name(newCertificate)).c_str(),
                 X509IntegerToString(X509_get_serialNumber(newCertificate)).c_str(),
-                X509DateToString(newCertificate->cert_info->validity->notBefore).c_str(),
-                X509DateToString(newCertificate->cert_info->validity->notAfter).c_str()
+                X509DateToString(X509_get0_notBefore(newCertificate)).c_str(),
+                X509DateToString(X509_get0_notAfter(newCertificate)).c_str()
                 );
 
             certificateChain.push_back(newCertificate);
@@ -729,7 +732,7 @@ namespace GridMate
                 {
                     const auto now = AZStd::chrono::system_clock::now();
                     // If connection is not bound any time after the handshake period, disconnect.
-                    if (AZStd::chrono::milliseconds(now - m_creationTime).count() > m_timeoutMS)
+                    if (AZStd::chrono::milliseconds(now - m_creationTime).count() > static_cast<typename AZStd::chrono::milliseconds::rep>(m_timeoutMS))
                     {
                         AZ_DebugSecureSocketConnection("GridMateSecure", "%lld | [%08x] :%d Connection unbound from %s. DgramsSent=%d, DgramsReceived=%d timeout %llu\n", now.time_since_epoch().count(), this, m_dbgPort, Internal::SafeGetAddress(m_addr->ToString()), m_dbgDgramsSent, m_dbgDgramsReceived, m_timeoutMS);
                         sm.Transition(CS_DISCONNECTED);
@@ -757,18 +760,18 @@ namespace GridMate
             case CE_NEW_INCOMING_DGRAM:
             case CE_UPDATE:
             {
-                bool changedState = false;
+        bool changedState = false;
 
-                int result = SSL_accept(m_ssl);
-                if (result == 1)
-                {
-                    sm.Transition(ConnectionState::CS_ESTABLISHED);
-                    changedState = true;
-                }
-                else if (result <= 0)
-                {
+        int result = SSL_accept(m_ssl);
+        if (result == 1)
+        {
+            sm.Transition(ConnectionState::CS_ESTABLISHED);
+            changedState = true;
+        }
+        else if (result <= 0)
+        {
                     changedState = HandleSSLError(result);
-                    }
+        }
 
                 QueueDatagrams();
                 return changedState;
@@ -820,13 +823,13 @@ namespace GridMate
             case CE_UPDATE:
             {
                 //Enter this state when re-handshaking or an initial move from cookie to handshake
-                if (now > m_nextHelloRequestResend)
-                {
-                    m_nextHelloRequestResend = now + m_helloRequestResendInterval;
-                    m_helloRequestResendInterval *= 2; // exponential backoff
+        if (now > m_nextHelloRequestResend)
+        {
+            m_nextHelloRequestResend = now + m_helloRequestResendInterval;
+            m_helloRequestResendInterval *= 2; // exponential backoff
                     m_helloRequestResendInterval = GetMin(m_helloRequestResendInterval, AZStd::chrono::milliseconds(1000));
                     SendHello(now);
-                }
+            }
                 break;
             }
             default: break;
@@ -839,7 +842,7 @@ namespace GridMate
         (void)sm;
         switch (event.id)
         {
-            case AZ::HSM::EnterEventId:
+        case AZ::HSM::EnterEventId:
             {
                 AZ_DebugSecureSocketConnection("GridMateSecure", "%p Connecting to %s.DgramsSent=%d, DgramsReceived=%d\n", this, Internal::SafeGetAddress(m_addr->ToString()), m_dbgDgramsSent, m_dbgDgramsReceived);
 
@@ -847,20 +850,20 @@ namespace GridMate
                 QueueDatagrams();
                 m_nextHandshakeRetry = AZStd::chrono::system_clock::now() + AZStd::chrono::milliseconds(m_timeoutMS / kSSLHandshakeAttempts);
                 return true;
-            }
-            case AZ::HSM::ExitEventId:
-                return true;
+    }
+        case AZ::HSM::ExitEventId:
+            return true;
             case CE_NEW_INCOMING_DGRAM:
             {
-                bool changedState = false;
-                int result = SSL_connect(m_ssl);
-                if (result == 1)
-                {
-                    sm.Transition(ConnectionState::CS_ESTABLISHED);
-                    changedState = true;
-                }
-                else if (result <= 0)
-                {
+        bool changedState = false;
+            int result = SSL_connect(m_ssl);
+            if (result == 1)
+            {
+                sm.Transition(ConnectionState::CS_ESTABLISHED);
+                changedState = true;
+            }
+            else if (result <= 0)
+            {
                     changedState = HandleSSLError(result);
                 }
 
@@ -904,7 +907,7 @@ namespace GridMate
                 CreateSSL(m_sslContext);
                 sm.Transition(CS_CONNECT);
                 return true;
-            }
+        }
             case CE_NEW_INCOMING_DGRAM:
             {
                 bool changedState = false;
@@ -915,11 +918,11 @@ namespace GridMate
                 }
                 QueueDatagrams();
                 return changedState;
-            }
+    }
             case CE_UPDATE:
-            {
+    {
                 if (m_nextHandshakeRetry <= AZStd::chrono::system_clock::now())
-                {
+        {
                     AZ_DebugSecureSocketConnection("GridMateSecure", "CS_HANDSHAKE_RETRY to %s.DgramsSent=%d, DgramsReceived=%d\n", Internal::SafeGetAddress(m_addr->ToString()), m_dbgDgramsSent, m_dbgDgramsReceived);
 
                     m_nextHandshakeRetry = AZStd::chrono::system_clock::now() + AZStd::chrono::milliseconds(m_timeoutMS / kSSLHandshakeAttempts);
@@ -928,7 +931,7 @@ namespace GridMate
                 }
                 break;
             }
-        default: break;
+            default: break;
         }
 
         return false;
@@ -939,50 +942,50 @@ namespace GridMate
         (void)sm;
         switch (event.id)
         {
-            case AZ::HSM::EnterEventId:
-            {
+        case AZ::HSM::EnterEventId:
+        {
                 /*static AZStd::atomic_int count = 0;
                 ++count;
                 AZ_TracePrintf("GridMateSecure", "OnStateEstablished %d\n", count);*/
                 /*AZ_DebugSecureSocketConnection("GridMateSecure", "%lld | [%08x] :%d Successfully established connection to %s. DgramsSent=%d, DgramsReceived=%d\n", AZStd::chrono::system_clock::now().time_since_epoch().count(), this, m_dbgPort, Internal::SafeGetAddress(m_addr->ToString()), m_dbgDgramsSent, m_dbgDgramsReceived);*/
-                return true;
-            }
-            case AZ::HSM::ExitEventId:
-                return true;
+            return true;
+        }
+        case AZ::HSM::ExitEventId:
+            return true;
             case CE_NEW_INCOMING_DGRAM:
-            {
+    {
                 while (BIO_pending(m_inDTLSBuffer)) //TODO ratelimit
-                {
+        {
                     Datagram newReceived;
                     newReceived.resize_no_construct(m_mtu);
                     AZ::s32 bytesRead = SSL_read(m_ssl, newReceived.data(), m_mtu);
-                    if (bytesRead <= 0)
-                    {
+            if (bytesRead <= 0)
+            {
                         if(HandleSSLError(bytesRead))
-                        {
-                            return true;
-                        }
-                        break;
-                    }
+                {
+                    return true;
+                }
+                break;
+            }
                     newReceived.resize_no_construct(bytesRead);
                     m_inboundPlaintextQueue->emplace(AZStd::move(newReceived), m_addr);
                 }
                 return false;
-            }
+        }
             case CE_NEW_OUTGOING_DGRAM:
             {
                 for (; !m_outboundPlainQueue.empty(); m_outboundPlainQueue.pop())   //TODO rate limit
-                {
+        {
                     const Datagram& plainDgram = m_outboundPlainQueue.front();
-                    AZ::s32 bytesWritten = SSL_write(m_ssl, plainDgram.data(), static_cast<int>(plainDgram.size()));
-                    if (bytesWritten <= 0)
-                    {
+            AZ::s32 bytesWritten = SSL_write(m_ssl, plainDgram.data(), static_cast<int>(plainDgram.size()));
+            if (bytesWritten <= 0)
+            {
                         if(HandleSSLError(bytesWritten))
-                        {
-                            return true;
-                        }
-                        break;
-                    }
+                {
+                    return true;
+                }
+                break;
+            }
 
                     QueueDatagrams();
                 }
@@ -1017,9 +1020,9 @@ namespace GridMate
         {
             m_sslError = sslError;
             if (m_sslError == SSL_ERROR_SSL)
-            {
-                static const AZ::u32 BUFFER_SIZE = 256;
-                char buffer[BUFFER_SIZE];
+        {
+            static const AZ::u32 BUFFER_SIZE = 256;
+            char buffer[BUFFER_SIZE];
                 ERR_error_string_n(ERR_get_error(), buffer, BUFFER_SIZE);
                 AZ_DebugSecureSocketConnection("GridMateSecure", "[%08x] Connection error occurred on %s with SSL error %s.\n", this, Internal::SafeGetAddress(m_addr->ToString()), buffer);
             }
@@ -1032,13 +1035,17 @@ namespace GridMate
         }
 
         return false;
-    }
+        }
 
     void SecureSocketDriver::Connection::ForceDTLSTimeout()
     {
-        m_ssl->d1->next_timeout.tv_sec = 0;
-        m_ssl->d1->next_timeout.tv_usec = 1;    //Add just enough to not detect as NULL
-        BIO_ctrl(m_inDTLSBuffer, BIO_CTRL_DGRAM_SET_NEXT_TIMEOUT, 0, &(m_ssl->d1->next_timeout));
+        timeval next_timeout;
+        next_timeout.tv_sec = 0;
+        next_timeout.tv_usec = 1;    //Add just enough to not detect as NULL
+        BIO_ctrl(m_inDTLSBuffer, BIO_CTRL_DGRAM_SET_NEXT_TIMEOUT, 0, &next_timeout);
+
+        // we are unable to set SSLs DTLS next_timeout because the ssl_st structure
+        // is now opaque, so this may fail if there is no active DTLS timer
         DTLSv1_handle_timeout(m_ssl);
     }
 
@@ -1128,34 +1135,32 @@ namespace GridMate
             }
             else
             {
-                // Multiple DTLS records (datagrams) may have been written to the BIO buffer so
-                // each one must be extracted and stored as a separate Datagram object in the driver.
-                static const size_t lengthOffsetInDTLSRecord = DTLS1_RT_HEADER_LENGTH - sizeof(AZ::u16);
-                size_t recordStart = 0, recordEnd = (lengthOffsetInDTLSRecord + sizeof(AZ::u16));
+        // Multiple DTLS records (datagrams) may have been written to the BIO buffer so
+        // each one must be extracted and stored as a separate Datagram object in the driver.
+        static const size_t lengthOffsetInDTLSRecord = DTLS1_RT_HEADER_LENGTH - sizeof(AZ::u16);
+        size_t recordStart = 0, recordEnd = (lengthOffsetInDTLSRecord + sizeof(AZ::u16));
                         while (recordEnd < tempBuffer.size())
-                {
+        {
                     AZ::u16 recordLength = *reinterpret_cast<AZ::u16*>(tempBuffer.data() + recordEnd - sizeof(AZ::u16));
 
-                    // The fields in a DTLS record are stored in big-endian format so perform
-                    // an endian swap on little-endian machines.
-#if !defined(AZ_BIG_ENDIAN)
-                    AZStd::endian_swap<AZ::u16>(recordLength);
-#endif
-                    recordEnd += recordLength;
+            // The fields in a DTLS record are stored in big-endian format so perform
+            // an endian swap on little-endian machines.
+            AZStd::endian_swap<AZ::u16>(recordLength);
+            recordEnd += recordLength;
                             if (recordEnd > tempBuffer.size())
-                    {
-                        break;
-                    }
+            {
+                break;
+            }
 
                     outDgramList.emplace_back(tempBuffer.data() + recordStart, tempBuffer.data() + recordEnd);
 
-                    recordStart = recordEnd;
-                    recordEnd += (lengthOffsetInDTLSRecord + sizeof(AZ::u16));
-                }
+            recordStart = recordEnd;
+            recordEnd += (lengthOffsetInDTLSRecord + sizeof(AZ::u16));
+        }
 
-                // If a deserialization error occurred (i.e. not all bytes in the buffer were read) all datagrams
-                // after the malformation are discarded. It's assumed that the BIO buffer only contained complete
-                // DTLS record datagrams.
+        // If a deserialization error occurred (i.e. not all bytes in the buffer were read) all datagrams
+        // after the malformation are discarded. It's assumed that the BIO buffer only contained complete
+        // DTLS record datagrams.
                 bool isComplete = (recordStart == tempBuffer.size());
                 (void)isComplete;
                 AZ_Assert(isComplete, "Malformed DTLS record found, dropping remaining records in the buffer (%d bytes lost).\n", (tempBuffer.size() - recordStart));
@@ -1217,21 +1222,21 @@ namespace GridMate
             {
                 keepDgram = !IsHelloRequestHandshake(data, dataSize);
                 break;
-            }
+                }
             default:
                 keepDgram = true;
                 break;
-        }
+            }
 
         if (keepDgram)
-        {
+            {
             const auto now = system_clock::now();
 
             //Received handshake while established (but still before timeout)
             if (m_sm.GetCurrentState() == CS_ESTABLISHED
                 && IsHandshake(data, dataSize)
                 && now >= m_creationTime
-                && milliseconds(now - m_creationTime).count() <= m_timeoutMS)
+                && milliseconds(now - m_creationTime).count() <= static_cast<typename AZStd::chrono::milliseconds::rep>(m_timeoutMS))
             {
                 //Resend Finished to close handshake
                 Datagram newReceived;
@@ -1247,7 +1252,7 @@ namespace GridMate
                 QueueDatagrams();
             }
 
-            BIO_write(m_inDTLSBuffer, data, dataSize);
+                BIO_write(m_inDTLSBuffer, data, dataSize);
             m_sm.Dispatch(CE_NEW_INCOMING_DGRAM);
         }
 
@@ -1823,7 +1828,7 @@ namespace GridMate
                     unsigned int cookieLen = 0;
                     if (CanSend())
                     {
-                        if (GenerateCookie(from, helloVerifyRequest.m_cookie, &cookieLen) == 1)
+                    if (GenerateCookie(from, helloVerifyRequest.m_cookie, &cookieLen) == 1)
                     {
                         helloVerifyRequest.m_cookieSize = static_cast<AZ::u8>(cookieLen);
 
@@ -1841,11 +1846,11 @@ namespace GridMate
                         {
                             AZ_DebugSecureSocket("GridMateSecure", "Failed to generate HelloVerifyRequest!\n");
                         }
-                        }
+                    }
                     else
                     {
                         AZ_DebugSecureSocket("GridMateSecure", "No buffer space to send HelloVerifyRequest!\n");
-                    }
+                }
                 }
                 else if (nextAction == ConnectionSecurity::NextAction::VerifyCookie)
                 {
@@ -1878,7 +1883,7 @@ namespace GridMate
                     else
                     {
                         AZ_DebugSecureSocket("GridMate", "Failed to unpack clientHello(cookie) for %s.\n", Internal::SafeGetAddress(from->ToString()) );
-                    }
+                }
                 }
             }
 
@@ -1934,6 +1939,4 @@ namespace GridMate
         }
     }
 }
-#endif // defined(AZ_PLATFORM_WINDOWS) || defined(AZ_PLATFORM_LINUX)
-
-#endif // AZ_UNITY_BUILD
+#endif

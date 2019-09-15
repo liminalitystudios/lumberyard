@@ -50,7 +50,6 @@ def _create_parser():
     parser.add_argument('-dependencies', action='store_true',help='Skip fetching and unpacking, only install dependencies')
     parser.add_argument('-noheaders', action='store_true',help='Skip installing headers')
     parser.add_argument('-skiprestricted', action='store_true',help='Skip restricted platforms')
-
     return parser
 
 def get_third_party_name():
@@ -228,6 +227,7 @@ def get_platform_list(args):
     platform_list.append(get_windows_vs2015())
     platform_list.append(get_darwin())
     platform_list.append(get_ios())
+    platform_list.append(get_appletv())
     platform_list.append(get_android_v7_19())
     platform_list.append(get_android_v7_21())
     platform_list.append(get_android_v8())

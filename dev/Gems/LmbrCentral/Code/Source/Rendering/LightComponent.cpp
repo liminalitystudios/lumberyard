@@ -59,7 +59,7 @@ namespace LmbrCentral
         {
             behaviorContext->Class<LightComponent>()->RequestBus("LightComponentRequestBus");
             ;
-            const AZStd::unique_ptr<AZ::BehaviorDefaultValue> probeFadeDefaultValue(behaviorContext->MakeDefaultValue(1.0f));
+            auto probeFadeDefaultValue(behaviorContext->MakeDefaultValue(1.0f));
 
             behaviorContext->EBus<LightComponentRequestBus>("Light", "LightComponentRequestBus")
                 ->Attribute(AZ::Script::Attributes::Category, "Rendering")
@@ -140,7 +140,7 @@ namespace LmbrCentral
                 ->Event("SetProbeAttenuationFalloff", &LightComponentRequestBus::Events::SetProbeAttenuationFalloff, { { { "Falloff", "Smoothness of the falloff around the probe's bounds" } } })
                 ->VirtualProperty("ProbeAttenuationFalloff", "GetProbeAttenuationFalloff", "SetProbeAttenuationFalloff")
                 ->Event("GetProbeFade", &LightComponentRequestBus::Events::GetProbeFade)
-                ->Event("SetProbeFade", &LightComponentRequestBus::Events::SetProbeFade, { { { "Fade", "Multiplier for fading out a probe [0-1]", probeFadeDefaultValue.get() } } })
+                ->Event("SetProbeFade", &LightComponentRequestBus::Events::SetProbeFade, { { { "Fade", "Multiplier for fading out a probe [0-1]", probeFadeDefaultValue } } })
                 ->VirtualProperty("ProbeFade", "GetProbeFade", "SetProbeFade")
                 ;
 
@@ -204,7 +204,8 @@ namespace LmbrCentral
                 ->Field("ShadowUpdateRatio", &LightConfiguration::m_shadowUpdateRatio)
                 ->Field("AnimIndex", &LightConfiguration::m_animIndex)
                 ->Field("AnimSpeed", &LightConfiguration::m_animSpeed)
-                ->Field("AnimPhase", &LightConfiguration::m_animPhase);
+                ->Field("AnimPhase", &LightConfiguration::m_animPhase)
+                ->Field("CubemapId", &LightConfiguration::m_cubemapId);
         }
     }
 
@@ -868,6 +869,7 @@ namespace LmbrCentral
         , m_shadowResScale(1.f)
         , m_shadowUpdateMinRadius(10.f)
         , m_shadowUpdateRatio(1.f)
+        , m_cubemapId(AZ::Uuid::Create())
     {
     }
 } // namespace LmbrCentral

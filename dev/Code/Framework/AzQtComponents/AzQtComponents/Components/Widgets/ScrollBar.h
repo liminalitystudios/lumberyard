@@ -22,6 +22,8 @@ namespace AzQtComponents
 {
     class ScrollBarWatcher;
     class Style;
+    class AssetFolderThumbnailView;
+    class TableView;
 
     /**
     * Class to provide extra functionality for working with ScrollBar controls.
@@ -48,6 +50,8 @@ namespace AzQtComponents
 
     private:
         friend class Style;
+        friend class AssetFolderThumbnailView;
+        friend class TableView;
 
         static void initializeWatcher();
         static void uninitializeWatcher();
@@ -55,7 +59,10 @@ namespace AzQtComponents
         static bool polish(Style* style, QWidget* widget, const Config& config);
         static bool unpolish(Style* style, QWidget* widget, const Config& config);
 
-        static QPointer<ScrollBarWatcher> m_scrollBarWatcher;
+        AZ_PUSH_DISABLE_WARNING(4251, "-Wunknown-warning-option") // 'AzQtComponents::ScrollBar::s_scrollBarWatcher': class 'QPointer<AzQtComponents::ScrollBarWatcher>' needs to have dll-interface to be used by clients of class 'AzQtComponents::ScrollBar'
+        static QPointer<ScrollBarWatcher> s_scrollBarWatcher;
+        AZ_POP_DISABLE_WARNING
+        static unsigned int s_watcherReferenceCount;
     };
 
 } // namespace AzQtComponents

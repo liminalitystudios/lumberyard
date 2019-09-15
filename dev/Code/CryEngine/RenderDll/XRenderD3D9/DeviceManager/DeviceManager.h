@@ -310,7 +310,8 @@ public:
         USAGE_DIRECT_ACCESS              = BIT(0),
         USAGE_DIRECT_ACCESS_CPU_COHERENT = BIT(1),
         USAGE_DIRECT_ACCESS_GPU_COHERENT = BIT(2),
-        USAGE_TRANSIENT                  = BIT(5), //  Igor: this forces Metal runtime to create a special mode buffer. Mapped data is valid during a single frame only and until next map.
+        USAGE_TRANSIENT                  = BIT(5), //This forces Metal runtime to create a special mode buffer. Mapped data is valid during a single frame only and until next map.
+        USAGE_MEMORYLESS                 = BIT(16), //Used to tag memoryless textures on ios
         USAGE_DEPTH_STENCIL              = BIT(17),
         USAGE_RENDER_TARGET              = BIT(18),
         USAGE_DYNAMIC                    = BIT(19),
@@ -441,6 +442,8 @@ public:
     static void* GetBackingStorage(D3DBuffer* buffer);
     static void FreebackingStorage(void* base_ptr);
 
+    void DisplayMemoryUsage();
+
 #if defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION DEVICEMANAGER_H_SECTION_7
     #if defined(AZ_PLATFORM_XENIA)
@@ -468,7 +471,7 @@ private:
         }
     };
 
-    typedef std::vector<StagingTextureDef, stl::STLGlobalAllocator<StagingTextureDef> > StagingPoolVec;
+    typedef std::vector<StagingTextureDef> StagingPoolVec;
 
 private:
     StagingPoolVec m_stagingPool;
@@ -674,9 +677,14 @@ public:
         m_bNoDelete = noDelete;
     }
 
+    void TrackTextureMemory(uint32 usageFlags, const char* name);
+    void RemoveFromTextureMemoryTracking();
+
 private:
     CDeviceTexture(const CDeviceTexture&);
     CDeviceTexture& operator = (const CDeviceTexture&);
+
+    bool m_isTracked = false;
 
 private:
     int Cleanup();

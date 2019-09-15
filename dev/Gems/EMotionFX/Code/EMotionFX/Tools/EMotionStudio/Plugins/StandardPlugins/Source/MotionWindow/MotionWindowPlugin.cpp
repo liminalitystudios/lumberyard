@@ -372,14 +372,7 @@ namespace EMStudio
         {
             EMotionFX::MotionInstance* motionInstance = motionInstances[i];
             EMotionFX::Motion* motion = motionInstance->GetMotion();
-            EMotionFX::PlayBackInfo* defaultPlaybackInfo = motion->GetDefaultPlayBackInfo();
-            if (!defaultPlaybackInfo)
-            {
-                // Need to make sure we always have a default playback info.
-                motion->CreateDefaultPlayBackInfo();
-                defaultPlaybackInfo = motion->GetDefaultPlayBackInfo();
-            }
-            motionInstance->InitFromPlayBackInfo(*defaultPlaybackInfo, false);
+            motionInstance->InitFromPlayBackInfo(*motion->GetDefaultPlayBackInfo(), false);
 
             // security check for motion mirroring, disable motion mirroring in case the node
             EMotionFX::ActorInstance* actorInstance = motionInstance->GetActorInstance();
@@ -493,10 +486,7 @@ namespace EMStudio
             defaultPlayBackInfo->mBlendInTime = 0.0f;
             defaultPlayBackInfo->mBlendOutTime = 0.0f;
 
-            if (defaultPlayBackInfo)
-            {
-                commandParameters = CommandSystem::CommandPlayMotion::PlayBackInfoToCommandParameters(defaultPlayBackInfo);
-            }
+            commandParameters = CommandSystem::CommandPlayMotion::PlayBackInfoToCommandParameters(defaultPlayBackInfo);
 
             command = AZStd::string::format("PlayMotion -filename \"%s\" %s", motion->GetFileName(), commandParameters.c_str());
             commandGroup.AddCommandString(command);
@@ -675,7 +665,7 @@ namespace EMStudio
             {
             case QMessageBox::Save:
             {
-                GetMainWindow()->GetFileManager()->SaveMotion(motion);
+                GetMainWindow()->GetFileManager()->SaveMotion(motion->GetID());
                 break;
             }
             case QMessageBox::Discard:
@@ -693,7 +683,7 @@ namespace EMStudio
         else
         {
             // save without asking first
-            GetMainWindow()->GetFileManager()->SaveMotion(motion);
+            GetMainWindow()->GetFileManager()->SaveMotion(motion->GetID());
         }
 
         return DirtyFileManager::FINISHED;

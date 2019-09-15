@@ -67,7 +67,7 @@ namespace EMotionFX
         bool GetHasOutputPose() const override                  { return true; }
         bool GetSupportsDisable() const override                { return true; }
         bool GetSupportsVisualization() const override          { return true; }
-        uint32 GetVisualColor() const override                  { return MCore::RGBA(159, 81, 255); }
+        AZ::Color GetVisualColor() const override               { return AZ::Color(0.62f, 0.32f, 1.0f, 1.0f); }
 
         void Reinit() override;
         bool InitAfterLoading(AnimGraph* animGraph) override;
@@ -96,6 +96,9 @@ namespace EMotionFX
         ESyncMode                           m_syncMode;
         EEventMode                          m_eventMode;
         EExtractionMode                     m_extractionMode;
+
+    private:
+        AZStd::string GetNodeMaskNodeName(int index) const;
     };
 
 }   // namespace EMotionFX

@@ -16,6 +16,7 @@
 #include <AzCore/std/containers/list.h>
 #include <AzCore/std/containers/array.h>
 #include <AzCore/IO/FileIO.h>
+#include <AzCore/Component/ComponentBus.h>
 #include <AzFramework/Asset/GenericAssetHandler.h>
 
 namespace AZ
@@ -185,7 +186,13 @@ namespace Physics
         /// @param materialId material id to find the configuration for
         /// @param data stores the material data if material with such ID exists
         /// @return true if MaterialFromAssetConfiguration was found, False otherwise
-        bool GetDataForMaterialId(const MaterialId& materialId, MaterialFromAssetConfiguration& data);
+        bool GetDataForMaterialId(const MaterialId& materialId, MaterialFromAssetConfiguration& configuration) const;
+
+        /// Finds MaterialFromAssetConfiguration in the library given material name
+        /// @param materialName material name to find the configuration for
+        /// @param data stores the material data if material with such name exists
+        /// @return true if MaterialFromAssetConfiguration was found, False otherwise
+        bool GetDataForMaterialName(const AZStd::string& materialName, MaterialFromAssetConfiguration& configuration) const;
 
         /// Adds material data to the asset library.\n
         /// If MaterialId is not set, it'll be generated automatically.\n
@@ -195,12 +202,28 @@ namespace Physics
 
         /// Returns all MaterialFromAssetConfiguration instances from this library
         /// @return a Vector of all MaterialFromAssetConfiguration stored in this library
-        const AZStd::vector<MaterialFromAssetConfiguration>& GetMaterialsData() { return m_materialLibrary; }
+        const AZStd::vector<MaterialFromAssetConfiguration>& GetMaterialsData() const { return m_materialLibrary; }
 
     protected:
         friend class MaterialLibraryAssetEventHandler;
         void GenerateMissingIds();
         AZStd::vector<MaterialFromAssetConfiguration> m_materialLibrary;
+    };
+
+    /// The class is used to expose a MaterialLibraryAsset to Edit Context
+    /// =======================================================================
+    ///
+    /// Since AZ::Data::Asset doesn't reflect the data to EditContext 
+    /// we have to have a wrapper doing it.
+    class MaterialLibraryAssetReflectionWrapper
+    {
+    public:
+        AZ_CLASS_ALLOCATOR(MaterialLibraryAssetReflectionWrapper, AZ::SystemAllocator, 0);
+        AZ_TYPE_INFO(MaterialLibraryAssetReflectionWrapper, "{3D2EF5DF-EFD0-47EB-B88F-3E6FE1FEE5B0}");
+        static void Reflect(AZ::ReflectContext* context);
+
+        AZ::Data::Asset<Physics::MaterialLibraryAsset> m_asset =
+            AZ::Data::AssetLoadBehavior::NoLoad;
     };
 
     /// The class is used to store a MaterialLibraryAsset and a vector of MaterialIds selected from the library
@@ -259,8 +282,12 @@ namespace Physics
         /// @param slotIndex index of the slot to retrieve MaterialId for
         Physics::MaterialId GetMaterialId(int slotIndex = 0) const;
 
+        /// Returns the material library asset.
+        const Physics::MaterialLibraryAsset* GetMaterialLibraryAssetData() const;
+
     private:
-        AZ::Data::Asset<Physics::MaterialLibraryAsset> m_materialLibrary = AZ::Data::AssetLoadBehavior::NoLoad;
+        AZ::Data::Asset<Physics::MaterialLibraryAsset> m_materialLibrary { AZ::Data::AssetLoadBehavior::NoLoad };
+
         AZStd::vector<Physics::MaterialId> m_materialIdsAssignedToSlots;
         SlotsArray m_materialSlots;
 
@@ -280,10 +307,9 @@ namespace Physics
     /// Used by Terrain Layer Editor window to save material selection for a specific Terrain Layer. \n
     /// Must be used before cooking the terrain, in-game usage won't have any effect.
     class EditorTerrainMaterialRequests
-        : public AZ::EBusTraits
+        : public AZ::ComponentBus
     {
     public:
-        static const AZ::EBusHandlerPolicy HandlerPolicy = AZ::EBusHandlerPolicy::Single;
 
         virtual void SetMaterialSelectionForSurfaceId(int surfaceId, const MaterialSelection& selection) = 0;
         virtual bool GetMaterialSelectionForSurfaceId(int surfaceId, MaterialSelection& selection) = 0;

@@ -303,5 +303,85 @@ namespace AzToolsFramework
             unsigned int GetMessageType() const override;
             int m_numberOfPendingJobs = -1;
         };
+
+        // WantAssetBrowserShowRequest
+        class WantAssetBrowserShowRequest
+            : public AzFramework::AssetSystem::BaseAssetProcessorMessage
+        {
+        public:
+            AZ_CLASS_ALLOCATOR(WantAssetBrowserShowRequest, AZ::OSAllocator, 0);
+            AZ_RTTI(WantAssetBrowserShowRequest, "{C66852BF-1A8C-47AC-9CFF-183CC4241075}", BaseAssetProcessorMessage);
+            static void Reflect(AZ::ReflectContext* context);
+            static unsigned int MessageType();
+
+            WantAssetBrowserShowRequest() = default;
+            unsigned int GetMessageType() const override;
+        };
+
+        // WantAssetBrowserShowResponse
+        class WantAssetBrowserShowResponse
+            : public AzFramework::AssetSystem::BaseAssetProcessorMessage
+        {
+        public:
+            AZ_CLASS_ALLOCATOR(WantAssetBrowserShowResponse, AZ::OSAllocator, 0);
+            AZ_RTTI(WantAssetBrowserShowResponse, "{B3015EF2-A91F-4E7D-932A-DA6043EDB678}", BaseAssetProcessorMessage);
+            static void Reflect(AZ::ReflectContext* context);
+            static unsigned int MessageType();
+
+            WantAssetBrowserShowResponse() = default;
+            unsigned int GetMessageType() const override;
+
+            unsigned int m_processId = 0;
+        };
+
+        // AssetBrowserShowRequest
+        class AssetBrowserShowRequest
+            : public AzFramework::AssetSystem::BaseAssetProcessorMessage
+        {
+        public:
+            AZ_CLASS_ALLOCATOR(AssetBrowserShowRequest, AZ::OSAllocator, 0);
+            AZ_RTTI(AssetBrowserShowRequest, "{D44903DD-45D8-4CBA-8A9D-C9D5E7FFB0A6}", BaseAssetProcessorMessage);
+            static void Reflect(AZ::ReflectContext* context);
+            static unsigned int MessageType();
+
+            AssetBrowserShowRequest() = default;
+            unsigned int GetMessageType() const override;
+
+            AZ::OSString m_filePath;
+        };
+
+        // SourceAssetProductsInfoRequest
+        class SourceAssetProductsInfoRequest
+            : public AzFramework::AssetSystem::BaseAssetProcessorMessage
+        {
+        public:
+            AZ_CLASS_ALLOCATOR(SourceAssetProductsInfoRequest, AZ::OSAllocator, 0);
+            AZ_RTTI(SourceAssetProductsInfoRequest, "{14D0994C-7096-44D9-A239-2A7B51DDC95A}", BaseAssetProcessorMessage);
+            static void Reflect(AZ::ReflectContext* context);
+            static unsigned int MessageType();
+
+            SourceAssetProductsInfoRequest() = default;
+            explicit SourceAssetProductsInfoRequest(const AZ::Data::AssetId& assetId);
+            unsigned int GetMessageType() const override;
+
+            AZ::Data::AssetId m_assetId;
+        };
+
+        // SourceAssetProductsInfoResponse
+        class SourceAssetProductsInfoResponse
+            : public AzFramework::AssetSystem::BaseAssetProcessorMessage
+        {
+        public:
+            AZ_CLASS_ALLOCATOR(SourceAssetProductsInfoResponse, AZ::OSAllocator, 0);
+            AZ_RTTI(SourceAssetProductsInfoResponse, "{DF0B7C57-534E-480E-8889-C4872C87C1C3}", BaseAssetProcessorMessage);
+            static void Reflect(AZ::ReflectContext* context);
+
+            SourceAssetProductsInfoResponse() = default;
+
+            unsigned int GetMessageType() const override;
+
+            bool m_found = false;
+            AZStd::vector<AZ::Data::AssetInfo> m_productsAssetInfo;
+        };
     } // namespace AssetSystem
 } // namespace AzToolsFramework

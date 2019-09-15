@@ -19,14 +19,54 @@
 #include <AzCore/Serialization/SerializeContext.h>
 #include <AzCore/Component/TransformBus.h>
 #include <AzCore/std/smart_ptr/make_shared.h>
+#include <AzFramework/Physics/Utils.h>
 
 #include <Source/BaseColliderComponent.h>
+#include <Source/RigidBodyComponent.h>
 #include <Source/RigidBodyStatic.h>
 #include <Source/SystemComponent.h>
 #include <Source/Utils.h>
 
 namespace PhysX
 {
+    AZ::Aabb BaseColliderComponent::ShapeInfoCache::GetAabb(PhysX::Shape& shape)
+    { 
+        if (m_cacheOutdated)
+        {
+            UpdateCache(shape);
+        }
+        return m_aabb; 
+    }
+
+    void BaseColliderComponent::ShapeInfoCache::InvalidateCache()
+    { 
+        m_cacheOutdated = true; 
+    }
+
+    const AZ::Transform& BaseColliderComponent::ShapeInfoCache::GetWorldTransform()
+    {
+        return m_worldTransform;
+    }
+
+    void BaseColliderComponent::ShapeInfoCache::SetWorldTransform(const AZ::Transform& worldTransform)
+    {
+        m_worldTransform = worldTransform;
+    }
+
+    void BaseColliderComponent::ShapeInfoCache::UpdateCache(PhysX::Shape& shape)
+    {
+        physx::PxShape* pxShape = shape.GetPxShape();
+        physx::PxTransform pxTransform = pxShape->getLocalPose();
+        physx::PxGeometryHolder pxGeomHolder = pxShape->getGeometry();
+        physx::PxGeometryType::Enum pxGeomType = pxGeomHolder.getType();
+
+        physx::PxBounds3 bounds = physx::PxGeometryQuery::getWorldBounds(pxShape->getGeometry().any()
+            , physx::PxTransform(PxMathConvert(m_worldTransform)) * pxShape->getLocalPose());
+        m_aabb = AZ::Aabb::CreateFromMinMax(AZ::Vector3(PxMathConvert(bounds.minimum))
+            , AZ::Vector3(PxMathConvert(bounds.maximum)));
+        m_cacheOutdated = false;
+    }
+
     void BaseColliderComponent::Reflect(AZ::ReflectContext* context)
     {
         if (auto serializeContext = azrtti_cast<AZ::SerializeContext*>(context))
@@ -46,14 +86,25 @@ namespace PhysX
 
     void BaseColliderComponent::Activate()
     {
-        ColliderComponentRequestBus::Handler::BusConnect(GetEntityId());
-        AZ::EntityBus::Handler::BusConnect(GetEntityId());
+        const AZ::EntityId entityId = GetEntityId();
+
+        ColliderComponentRequestBus::Handler::BusConnect(entityId);
+        AZ::EntityBus::Handler::BusConnect(entityId);
+        AZ::TransformNotificationBus::Handler::BusConnect(entityId);
+        ColliderShapeRequestBus::Handler::BusConnect(GetEntityId());
+
+        AZ::Transform worldTransform = AZ::Transform::CreateIdentity();
+        AZ::TransformBus::EventResult(worldTransform, entityId, &AZ::TransformBus::Events::GetWorldTM);
+        m_shapeInfoCache.SetWorldTransform(worldTransform);
 
         InitShape();
     }
 
     void BaseColliderComponent::Deactivate()
     {
+        Physics::Utils::DeferDelete(AZStd::move(m_staticRigidBody));
+        ColliderShapeRequestBus::Handler::BusDisconnect();
+        AZ::TransformNotificationBus::Handler::BusDisconnect();
         AZ::EntityBus::Handler::BusDisconnect();
         ColliderComponentRequestBus::Handler::BusDisconnect();
     }
@@ -78,14 +129,19 @@ namespace PhysX
         return m_staticRigidBody != nullptr;
     }
 
-    AZStd::shared_ptr<PhysX::RigidBodyStatic> BaseColliderComponent::GetStaticRigidBody()
+    PhysX::RigidBodyStatic* BaseColliderComponent::GetStaticRigidBody()
     {
-        return m_staticRigidBody;
+        return m_staticRigidBody.get();
+    }
+
+    bool BaseColliderComponent::IsTrigger()
+    {
+        return m_shape->IsTrigger();
     }
 
     void BaseColliderComponent::InitStaticRigidBody()
     {
-        bool hasRigidBodyComponent = Physics::RigidBodyRequestBus::FindFirstHandler(GetEntityId()) != nullptr;
+        bool hasRigidBodyComponent = GetEntity()->FindComponent<PhysX::RigidBodyComponent>() != nullptr;
         bool hasCharacterComponent = Physics::CharacterRequestBus::FindFirstHandler(GetEntityId()) != nullptr;
         
         if (!hasRigidBodyComponent && !hasCharacterComponent)
@@ -111,7 +167,7 @@ namespace PhysX
                 configuration.m_entityId = GetEntityId();
                 configuration.m_debugName = GetEntity()->GetName();
 
-                m_staticRigidBody = AZStd::make_shared<PhysX::RigidBodyStatic>(configuration);
+                m_staticRigidBody = AZStd::make_unique<PhysX::RigidBodyStatic>(configuration);
 
                 ColliderComponentRequestBus::EnumerateHandlersId(GetEntityId(), [this](ColliderComponentRequests* handler)
                 {
@@ -176,5 +232,24 @@ namespace PhysX
     void* BaseColliderComponent::GetNativePointer()
     {
        return m_shape->GetPxShape();
+    }
+
+    void BaseColliderComponent::OnTransformChanged(const AZ::Transform& /*local*/, const AZ::Transform& world)
+    {
+        m_shapeInfoCache.SetWorldTransform(world);
+        if (m_staticRigidBody)
+        {
+            m_staticRigidBody->SetTransform(world);
+        }
+        m_shapeInfoCache.InvalidateCache();
+    }
+
+    AZ::Aabb BaseColliderComponent::GetColliderShapeAabb()
+    {
+        if (!m_shape)
+        {
+            return AZ::Aabb::CreateFromPoint(m_shapeInfoCache.GetWorldTransform().GetPosition());
+        }
+        return m_shapeInfoCache.GetAabb(*m_shape);
     }
 }

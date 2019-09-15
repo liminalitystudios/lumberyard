@@ -19,6 +19,7 @@
 #include <AzCore/std/parallel/mutex.h>
 #include <AzCore/Casting/numeric_cast.h>
 #include <AzCore/IO/SystemFile.h>
+#include <AzCore/Math/Aabb.h>
 
 #ifdef DrawText
 #undef DrawText
@@ -433,6 +434,8 @@ struct SPerObjectShadow
 
 #define LV_DLF_LIGHTVOLUMES_MASK (DLF_DISABLED | DLF_FAKE | DLF_AMBIENT | DLF_DEFERRED_CUBEMAPS)
 
+#define TERRAIN_AABB_PADDING 0.5f
+
 class CLightVolumesMgr
     : public Cry3DEngineBase
 {
@@ -641,9 +644,12 @@ public:
     virtual bool InitLevelForEditor(const char* szFolderName, const char* szMissionName);
     virtual bool LevelLoadingInProgress();
     virtual void DisplayInfo(float& fTextPosX, float& fTextPosY, float& fTextStepY, const bool bEnhanced);
+    virtual void DisplayMemoryStatistics();
     virtual void SetupDistanceFog();
-    virtual IStatObj* LoadStatObjUnsafeManualRef(const char* szFileName, const char* szGeomName = NULL, /*[Out]*/ IStatObj::SSubObject** ppSubObject = NULL, bool bUseStreaming = true, unsigned long nLoadingFlags = 0);
-    virtual _smart_ptr<IStatObj> LoadStatObjAutoRef(const char* szFileName, const char* szGeomName = NULL, /*[Out]*/ IStatObj::SSubObject** ppSubObject = NULL, bool bUseStreaming = true, unsigned long nLoadingFlags = 0);
+    virtual IStatObj* LoadStatObjUnsafeManualRef(const char* fileName, const char* geomName = nullptr, /*[Out]*/ IStatObj::SSubObject** subObject = nullptr, 
+        bool useStreaming = true, unsigned long loadingFlags = 0, const void* data = nullptr, int dataSize = 0) override;
+    virtual _smart_ptr<IStatObj> LoadStatObjAutoRef(const char* fileName, const char* geomName = nullptr, /*[Out]*/ IStatObj::SSubObject** subObject = nullptr, 
+        bool useStreaming = true, unsigned long loadingFlags = 0, const void* data = nullptr, int dataSize = 0) override;
     virtual IDeformableNode* CreateDeformableNode();
     virtual void DestroyDeformableNode(IDeformableNode* node);
     virtual const IObjManager* GetObjectManager() const;
@@ -703,6 +709,7 @@ public:
     virtual bool GetTerrainHole(int x, int y);
     virtual int GetHeightMapUnitSize();
     virtual int GetTerrainSize();
+    virtual const AZ::Aabb& GetTerrainAabb() const;
     virtual void SetSunDir(const Vec3& newSunOffset);
     virtual Vec3 GetSunDir() const;
     virtual Vec3 GetSunDirNormalized() const;
@@ -727,7 +734,7 @@ public:
     virtual void OnExplosion(Vec3 vPos, float fRadius, bool bDeformTerrain = true);
     //! For editor
     virtual void RemoveAllStaticObjects(int nSID);
-    virtual void SetTerrainSectorTexture(const int nTexSectorX, const int nTexSectorY, unsigned int textureId);
+    virtual void SetTerrainSectorTexture(const int nTexSectorX, const int nTexSectorY, unsigned int textureId, unsigned int textureSizeX, unsigned int textureSizeY);
     virtual void SetPhysMaterialEnumerator(IPhysMaterialEnumerator* pPhysMaterialEnumerator);
     virtual IPhysMaterialEnumerator* GetPhysMaterialEnumerator();
     virtual void LoadMissionDataFromXMLNode(const char* szMissionName);
@@ -823,6 +830,7 @@ public:
     virtual void CompleteObjectsGeometry();
     virtual void LockCGFResources();
     virtual void UnlockCGFResources();
+    virtual void FreeUnusedCGFResources();
 
     virtual void SerializeState(TSerialize ser);
     virtual void PostSerialize(bool bReading);
@@ -912,6 +920,8 @@ public:
     {
         return CONFIG_VERYHIGH_SPEC; // very high spec.
     }
+
+    bool CheckMinSpec(uint32 nMinSpec) override;
 
     void UpdateRenderingCamera(const char* szCallerName, const SRenderingPassInfo& passInfo);
     virtual void PrepareOcclusion(const CCamera& rCamera);
@@ -1087,6 +1097,8 @@ public:
     Vec3 m_volFogHeightDensity;
     Vec3 m_volFogHeightDensity2;
     Vec3 m_volFogGradientCtrl;
+
+    AZ::Aabb m_terrainAabb;
 
 private:
     float m_oceanWindDirection;
@@ -1575,7 +1587,8 @@ private:
     using LoadStatObjFunc = TReturn(CObjManager::*)(const char* filename, const char* _szGeomName, IStatObj::SSubObject** ppSubObject, bool bUseStreaming, unsigned long nLoadingFlags, const void* pData, int nDataSize, const char* szBlockName);
 
     template<typename TReturn>
-    TReturn LoadStatObjInternal(const char* szFileName, const char* szGeomName, IStatObj::SSubObject** ppSubObject, bool bUseStreaming, unsigned long nLoadingFlags, LoadStatObjFunc<TReturn> loadStatObjFunc);
+    TReturn LoadStatObjInternal(const char* fileName, const char* geomName, IStatObj::SSubObject** subObject, bool useStreaming, 
+        unsigned long loadingFlags, LoadStatObjFunc<TReturn> loadStatObjFunc, const void* data = nullptr, int dataSize = 0);
 };
 
 #endif // CRYINCLUDE_CRY3DENGINE_3DENGINE_H

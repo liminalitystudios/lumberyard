@@ -28,8 +28,8 @@
 
 // bump this value up if you want to invalidate shader cache (e.g. changed some code or .ext file)
 // #### VIP NOTE ####: DON'T USE MORE THAN ONE DECIMAL PLACE!!!! else it doesn't work...
-#define FX_CACHE_VER       10.1f
-#define FX_SER_CACHE_VER   1.0f  // Shader serialization version (FX_CACHE_VER + FX_SER_CACHE_VER)
+#define FX_CACHE_VER       10.3f
+#define FX_SER_CACHE_VER   1.2f  // Shader serialization version (FX_CACHE_VER + FX_SER_CACHE_VER)
 
 // Maximum 1 digit here
 // The version determines the parse logic in the shader cache gen, these values cannot overlap
@@ -663,7 +663,9 @@ enum EHWSRMaskBit
     HWSR_MULTI_LAYER_ALPHA_BLEND,
     HWSR_ADDITIVE_BLENDING,
     HWSR_APPLY_SSDO,
-    
+    HWSR_FOG_VOLUME_HIGH_QUALITY_SHADER,
+
+
     HWSR_SRGB0,
     HWSR_SRGB1,
     HWSR_SRGB2,

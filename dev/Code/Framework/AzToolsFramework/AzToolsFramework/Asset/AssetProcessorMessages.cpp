@@ -432,5 +432,119 @@ namespace AzToolsFramework
         {
             return AssetProcessorPendingPlatformAssetsRequest::MessageType();
         }
+
+
+        unsigned int WantAssetBrowserShowRequest::MessageType()
+        {
+            static unsigned int messageTypeAssetStatus = AZ_CRC("AssetSystem::WantAssetBrowserShowRequest", 0xa861bc09);
+            return messageTypeAssetStatus;
+        }
+
+        unsigned int WantAssetBrowserShowRequest::GetMessageType() const
+        {
+            return WantAssetBrowserShowRequest::MessageType();
+        }
+
+        void WantAssetBrowserShowRequest::Reflect(AZ::ReflectContext* context)
+        {
+            auto serialize = azrtti_cast<AZ::SerializeContext*>(context);
+            if (serialize)
+            {
+                serialize->Class<WantAssetBrowserShowRequest, BaseAssetProcessorMessage>()
+                    ->Version(1);
+            }
+        }
+
+
+        unsigned int WantAssetBrowserShowResponse::MessageType()
+        {
+            static unsigned int messageTypeAssetStatus = AZ_CRC("AssetSystem::WantAssetBrowserShowResponse", 0x2784cbb9);
+            return messageTypeAssetStatus;
+        }
+
+        unsigned int WantAssetBrowserShowResponse::GetMessageType() const
+        {
+            return WantAssetBrowserShowResponse::MessageType();
+        }
+
+        void WantAssetBrowserShowResponse::Reflect(AZ::ReflectContext* context)
+        {
+            auto serialize = azrtti_cast<AZ::SerializeContext*>(context);
+            if (serialize)
+            {
+                serialize->Class<WantAssetBrowserShowResponse, BaseAssetProcessorMessage>()
+                    ->Version(1)
+                    ->Field("ProcessId", &WantAssetBrowserShowResponse::m_processId);
+            }
+        }
+
+
+        unsigned int AssetBrowserShowRequest::MessageType()
+        {
+            static unsigned int messageTypeAssetStatus = AZ_CRC("AssetSystem::AssetBrowserShowRequest", 0xb2768047);
+            return messageTypeAssetStatus;
+        }
+
+        unsigned int AssetBrowserShowRequest::GetMessageType() const
+        {
+            return AssetBrowserShowRequest::MessageType();
+        }
+
+        void AssetBrowserShowRequest::Reflect(AZ::ReflectContext* context)
+        {
+            auto serialize = azrtti_cast<AZ::SerializeContext*>(context);
+            if (serialize)
+            {
+                serialize->Class<AssetBrowserShowRequest, BaseAssetProcessorMessage>()
+                    ->Version(1)
+                    ->Field("FilePath", &AssetBrowserShowRequest::m_filePath);
+            }
+        }
+
+        //---------------------------------------------------------------------
+        SourceAssetProductsInfoRequest::SourceAssetProductsInfoRequest(const AZ::Data::AssetId& assetId)
+            : m_assetId(assetId)
+        {
+        }
+
+        unsigned int SourceAssetProductsInfoRequest::MessageType()
+        {
+            static unsigned int messageType = AZ_CRC("AssetProcessor::SourceAssetProductsInfoRequest", 0x97f169fc);
+            return messageType;
+        }
+
+        unsigned int SourceAssetProductsInfoRequest::GetMessageType() const
+        {
+            return MessageType();
+        }
+
+        void SourceAssetProductsInfoRequest::Reflect(AZ::ReflectContext* context)
+        {
+            auto serialize = azrtti_cast<AZ::SerializeContext*>(context);
+            if (serialize)
+            {
+                serialize->Class<SourceAssetProductsInfoRequest, BaseAssetProcessorMessage>()
+                    ->Version(1)
+                    ->Field("AssetId", &SourceAssetProductsInfoRequest::m_assetId);
+            }
+        }
+
+        //---------------------------------------------------------------------
+        unsigned int SourceAssetProductsInfoResponse::GetMessageType() const
+        {
+            return SourceAssetProductsInfoRequest::MessageType();
+        }
+
+        void SourceAssetProductsInfoResponse::Reflect(AZ::ReflectContext* context)
+        {
+            auto serialize = azrtti_cast<AZ::SerializeContext*>(context);
+            if (serialize)
+            {
+                serialize->Class<SourceAssetProductsInfoResponse, BaseAssetProcessorMessage>()
+                    ->Version(1)
+                    ->Field("Found", &SourceAssetProductsInfoResponse::m_found)
+                    ->Field("ProductsAssetInfo", &SourceAssetProductsInfoResponse::m_productsAssetInfo);
+            }
+        }
     } // namespace AssetSystem
 } // namespace AzToolsFramework

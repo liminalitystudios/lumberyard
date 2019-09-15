@@ -76,7 +76,7 @@ namespace Audio
             IATLAudioObjectData* const pAudioObjectData,
             const IATLTriggerImplData* const pTriggerData,
             IATLEventData* const pEventData,
-            const TAudioSourceId sourceId) override;
+            const SATLSourceData* const pSourceData) override;
         EAudioRequestStatus StopEvent(
             IATLAudioObjectData* const pAudioObjectData,
             const IATLEventData* const pEventData) override;
@@ -85,6 +85,9 @@ namespace Audio
         EAudioRequestStatus SetPosition(
             IATLAudioObjectData* const pAudioObjectData,
             const SATLWorldPosition& sWorldPosition) override;
+        EAudioRequestStatus SetMultiplePositions(
+            IATLAudioObjectData* const pAudioObjectData,
+            const MultiPositionParams& multiPositionParams) override;
         EAudioRequestStatus SetEnvironment(
             IATLAudioObjectData* const pAudioObjectData,
             const IATLEnvironmentImplData* const pEnvironmentImplData,
@@ -148,6 +151,8 @@ namespace Audio
 
         bool CreateAudioSource(const SAudioInputConfig& sourceConfig) override;
         void DestroyAudioSource(TAudioSourceId sourceId) override;
+
+        void SetPanningMode(PanningMode mode) override;
         // ~AudioSystemImplementationRequestBus
 
     private:
@@ -203,7 +208,8 @@ namespace Audio
 
 #if defined(INCLUDE_WWISE_IMPL_PRODUCTION_CODE)
         AZStd::vector<AudioImplMemoryPoolInfo> m_debugMemoryPoolInfo;
-        CryFixedStringT<MAX_AUDIO_FILE_PATH_LENGTH> m_sFullImplString;
+        AZStd::string m_fullImplString;
+        AZStd::string m_speakerConfigString;
 #endif // INCLUDE_WWISE_IMPL_PRODUCTION_CODE
     };
 } // namespace Audio

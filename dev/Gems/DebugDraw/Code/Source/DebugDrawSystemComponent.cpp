@@ -64,6 +64,7 @@ namespace DebugDraw
         if (AZ::BehaviorContext* behaviorContext = azrtti_cast<AZ::BehaviorContext*>(context))
         {
             behaviorContext->EBus<DebugDrawRequestBus>("DebugDrawRequestBus")
+                ->Attribute(AZ::Script::Attributes::Category, "Debug")
                 ->Event("DrawAabb", &DebugDrawRequestBus::Events::DrawAabb)
                 ->Event("DrawAabbOnEntity", &DebugDrawRequestBus::Events::DrawAabbOnEntity)
                 ->Event("DrawLineLocationToLocation", &DebugDrawRequestBus::Events::DrawLineLocationToLocation)
@@ -480,7 +481,7 @@ namespace DebugDraw
             if (textElement.m_drawMode == DebugDrawTextElement::DrawMode::OnScreen)
             {
                 const AZ::Color textColor = needsGammaConversion ? textElement.m_color.GammaToLinear() : textElement.m_color;
-                gEnv->pRenderer->GetIRenderAuxGeom()->Draw3dLabel(Vec3(20.f, 20.f + ((float)numScreenTexts * 15.0f), 0.5f), 1.4, AZColorToLYColorF(textColor), textElement.m_text.c_str());
+                gEnv->pRenderer->GetIRenderAuxGeom()->Draw3dLabel(Vec3(20.f, 20.f + ((float)numScreenTexts * 15.0f), 0.5f), 1.4f, AZColorToLYColorF(textColor), textElement.m_text.c_str());
                 ++numScreenTexts;
             }
             else if (textElement.m_drawMode == DebugDrawTextElement::DrawMode::InWorld)
@@ -531,7 +532,7 @@ namespace DebugDraw
                             newEntry.first->second = 1;
                         }
                     }
-                    gEnv->pRenderer->GetIRenderAuxGeom()->Draw3dLabel(Vec3(screenPos.x, screenPos.y, 0.5f), 1.4, AZColorToLYColorF(textColor), textElement.m_text.c_str());
+                    gEnv->pRenderer->GetIRenderAuxGeom()->Draw3dLabel(Vec3(screenPos.x, screenPos.y, 0.5f), 1.4f, AZColorToLYColorF(textColor), textElement.m_text.c_str());
                 }
             }
         }

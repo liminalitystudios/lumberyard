@@ -3,9 +3,9 @@
 * its licensors.
 *
 * For complete copyright and license terms please see the LICENSE at the root of this
-* distribution(the "License").All use of this software is governed by the License,
-*or, if provided, by the license below or the license accompanying this file.Do not
-* remove or modify any license notices.This file is distributed on an "AS IS" BASIS,
+* distribution (the "License"). All use of this software is governed by the License,
+*or, if provided, by the license below or the license accompanying this file. Do not
+* remove or modify any license notices. This file is distributed on an "AS IS" BASIS,
 *WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 *
 */
@@ -45,6 +45,13 @@ namespace SliceBuilder
 
     void UiSliceBuilderWorker::CreateJobs(const AssetBuilderSDK::CreateJobsRequest& request, AssetBuilderSDK::CreateJobsResponse& response)
     {
+        // Check for shutdown
+        if (m_isShuttingDown)
+        {
+            response.m_result = AssetBuilderSDK::CreateJobsResultCode::ShuttingDown;
+            return;
+        }
+
         TraceDrillerHook traceDrillerHook(true);
 
         AZStd::string fullPath;
@@ -125,6 +132,14 @@ namespace SliceBuilder
         // .uicanvas files are converted as they are copied to the cache
         // a) to flatten all prefab instances
         // b) to replace any editor components with runtime components
+
+        // Check for shutdown
+        if (m_isShuttingDown)
+        {
+            AZ_TracePrintf(AssetBuilderSDK::InfoWindow, "Cancelled job %s because shutdown was requested.\n", request.m_sourceFile.c_str());
+            response.m_resultCode = AssetBuilderSDK::ProcessJobResult_Cancelled;
+            return;
+        }
 
         TraceDrillerHook traceDrillerHook(true);
 

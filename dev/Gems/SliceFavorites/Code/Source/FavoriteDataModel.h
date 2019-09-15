@@ -16,6 +16,9 @@
 #include <AzCore/XML/rapidxml.h>
 
 #include <AzFramework/Asset/AssetCatalogBus.h>
+#include <AzToolsFramework/AssetBrowser/AssetBrowserBus.h>
+
+#include <AzQtComponents/Buses/DragAndDrop.h>
 
 #include <AzToolsFramework/API/ToolsApplicationAPI.h>
 #include <AzToolsFramework/AssetBrowser/AssetBrowserBus.h>
@@ -55,37 +58,49 @@ namespace SliceFavorites
             DataType_Favorite
         } FavoriteType;
 
+        typedef enum
+        {
+            Default = 0,
+            Slice,
+            DynamicSlice
+        } FavoriteSubType;
+
         FavoriteData()
             : m_type(DataType_Unknown)
+            , m_subType(Default)
         {
         }
 
-        FavoriteData(FavoriteType type)
+        FavoriteData(FavoriteType type, FavoriteSubType subType = FavoriteSubType::Default)
             : m_type(type)
+            , m_subType(subType)
         {
         }
 
-        FavoriteData(const QString& name, FavoriteType type = DataType_Favorite)
+        FavoriteData(const QString& name, FavoriteType type = DataType_Favorite, FavoriteSubType subType = FavoriteSubType::Default)
             : m_name(name)
             , m_type(type)
+            , m_subType(subType)
         {
         }
 
-        FavoriteData(const QString& name, const AZ::Data::AssetId assetId, FavoriteType type = DataType_Favorite)
+        FavoriteData(const QString& name, const AZ::Data::AssetId assetId, FavoriteType type = DataType_Favorite, FavoriteSubType subType = FavoriteSubType::Default)
             : m_name(name)
             , m_assetId(assetId)
             , m_type(type)
+            , m_subType(subType)
         {
         }
 
         ~FavoriteData();
 
-        int LoadFromXML(AZ::rapidxml::xml_node<char>* node);
+        int LoadFromXML(AZ::rapidxml::xml_node<char>* node, const FavoriteData* root);
         int AddToXML(AZ::rapidxml::xml_node<char>* node, AZ::rapidxml::xml_document<char>* xmlDoc) const;
 
         QString m_name;
         AZ::Data::AssetId m_assetId;
         FavoriteType m_type;
+        FavoriteSubType m_subType = FavoriteSubType::Default;
 
         QList<FavoriteData*> m_children;
         FavoriteData* m_parent = nullptr;
@@ -105,6 +120,10 @@ namespace SliceFavorites
 
     private:
         int GetNumOfType(FavoriteType type) const;
+
+        QString GenerateTooltip() const;
+
+        bool IsAssetUnique(AZ::Data::AssetId assetId, const FavoriteData* root);
     };
 
     class FavoriteDataModel 
@@ -112,6 +131,8 @@ namespace SliceFavorites
         , private AzToolsFramework::EditorEvents::Bus::Handler
         , private AzToolsFramework::AssetBrowser::AssetBrowserInteractionNotificationBus::Handler
         , private AzFramework::AssetCatalogEventBus::Handler
+        , private AzQtComponents::DragAndDropEventsBus::Handler
+        , private AzToolsFramework::AssetBrowser::AssetBrowserComponentNotificationBus::Handler
     {
         Q_OBJECT
 
@@ -127,8 +148,6 @@ namespace SliceFavorites
         int rowCount(const QModelIndex &parent = QModelIndex()) const override;
         int columnCount(const QModelIndex &parent = QModelIndex()) const override;
         bool moveRows(const QModelIndex& sourceParent, int sourceRow, int count, const QModelIndex& destinationParent, int destinationChild) override;
-
-        void SetupModelData();
 
         size_t GetNumFavorites();
         void EnumerateFavorites(const AZStd::function<void(const AZ::Data::AssetId& assetId)>& callback);
@@ -160,7 +179,19 @@ namespace SliceFavorites
 
     private:
 
+        //////////////////////////////////////////////////////////////////////////
+        // AzQtComponents::DragAndDropEventsBus::Handler
+        //////////////////////////////////////////////////////////////////////////
+        void DragEnter(QDragEnterEvent* event, AzQtComponents::DragAndDropContextBase& context) override;
+        void DragMove(QDragMoveEvent* event, AzQtComponents::DragAndDropContextBase& context) override;
+        void DragLeave(QDragLeaveEvent* event) override;
+        void Drop(QDropEvent* event, AzQtComponents::DragAndDropContextBase& context) override;
+
+        ////////////////////////////////////////////////////////////////////////
+        // AssetCatalogBus::Handler overrides
         void OnCatalogAssetRemoved(const AZ::Data::AssetId& assetId) override;
+        void OnAssetBrowserComponentReady() override;
+        ////////////////////////////////////////////////////////////////////////
 
         ////////////////////////////////////////////////////////////////////////
         // AztoolsFramework::EditorEvents::Bus::Handler overrides
@@ -199,6 +230,8 @@ namespace SliceFavorites
         void RemoveFavorite(const FavoriteData* toRemove);
         void RemoveFromFavoriteMap(const FavoriteData* toRemove, bool removeChildren = true);
 
+        FavoriteData* GetFavoriteDataFromAssetId(const AZ::Data::AssetId& assetId) const;
+
         QString GetProjectName();
 
         QStringList mimeTypes() const override;
@@ -213,5 +246,7 @@ namespace SliceFavorites
         bool canDropMimeData(const QMimeData* data, Qt::DropAction action, int row, int column, const QModelIndex& parent) const override;
 
         bool setData(const QModelIndex& index, const QVariant& value, int role = Qt::EditRole) override;
+
+        bool CanAcceptDragAndDropEvent(QDropEvent* event, AzQtComponents::DragAndDropContextBase& context) const;
     };
 }

@@ -1029,7 +1029,8 @@ void EditorWindow::UnloadCanvas(AZ::EntityId canvasEntityId)
     {
         // Stop object pick mode so that the hierarchy and viewport states are
         // set back to normal before saving the canvas edit state
-        EBUS_EVENT(AzToolsFramework::EditorPickModeRequests::Bus, StopObjectPickMode);
+        AzToolsFramework::EditorPickModeRequestBus::Broadcast(
+            &AzToolsFramework::EditorPickModeRequests::StopEntityPickMode);
 
         // Delete the canvas
         DestroyCanvas(*canvasMetadata);
@@ -1196,7 +1197,8 @@ void EditorWindow::SetActiveCanvas(AZ::EntityId canvasEntityId)
 
         // If the active canvas hasn't been unloaded, stop object pick mode so that the hierarchy 
         // and viewport states are set back to normal before saving the canvas edit state
-        EBUS_EVENT(AzToolsFramework::EditorPickModeRequests::Bus, StopObjectPickMode);
+        AzToolsFramework::EditorPickModeRequestBus::Broadcast(
+            &AzToolsFramework::EditorPickModeRequests::StopEntityPickMode);
 
         // Disable undo stack
         if (canvasMetadata)
@@ -1612,7 +1614,8 @@ void EditorWindow::ToggleEditorMode()
     else
     {
         // Stop object pick mode
-        EBUS_EVENT(AzToolsFramework::EditorPickModeRequests::Bus, StopObjectPickMode);
+        AzToolsFramework::EditorPickModeRequestBus::Broadcast(
+            &AzToolsFramework::EditorPickModeRequests::StopEntityPickMode);
 
         m_canvasTabSectionWidget->hide();
 
@@ -2270,9 +2273,9 @@ void EditorWindow::SubmitUnloadSavedCanvasMetricEvent(AZ::EntityId canvasEntityI
         }
 
         // Check if this element is scaled to device
-        bool scaleToDevice = false;
-        EBUS_EVENT_ID_RESULT(scaleToDevice, entity->GetId(), UiTransformBus, GetScaleToDevice);
-        if (scaleToDevice)
+        UiTransformInterface::ScaleToDeviceMode scaleToDeviceMode = UiTransformInterface::ScaleToDeviceMode::None;
+        EBUS_EVENT_ID_RESULT(scaleToDeviceMode, entity->GetId(), UiTransformBus, GetScaleToDeviceMode);
+        if (scaleToDeviceMode != UiTransformInterface::ScaleToDeviceMode::None)
         {
             numScaleToDeviceElements++;
         }

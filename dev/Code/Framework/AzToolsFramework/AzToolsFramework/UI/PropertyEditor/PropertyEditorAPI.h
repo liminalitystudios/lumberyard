@@ -155,6 +155,7 @@ namespace AzToolsFramework
     public:
         virtual void WriteGUIValuesIntoProperty(size_t index, WidgetType* GUI, void* value, const AZ::Uuid& propertyType)
         {
+            (void)index;
             (void)GUI;
             (void)value;
             (void)propertyType;
@@ -163,6 +164,7 @@ namespace AzToolsFramework
         virtual bool ReadValueIntoGUI(size_t index, WidgetType* GUI, void* value, const AZ::Uuid& propertyType)
         {
             (void)index;
+            (void)GUI;
             (void)value;
             (void)propertyType;
             return false;
@@ -176,6 +178,7 @@ namespace AzToolsFramework
     protected:
         virtual bool HandlesType(const AZ::Uuid& id) const override
         {
+            (void)id;
             return true;
         }
 
@@ -200,6 +203,8 @@ namespace AzToolsFramework
 
         virtual void ReadValuesIntoGUI_Internal(QWidget* widget, InstanceDataNode* node) override
         {
+            AZ_PROFILE_FUNCTION(AZ::Debug::ProfileCategory::AzToolsFramework);
+
             for (size_t i = 0; i < node->GetNumInstances(); ++i)
             {
                 if (!ReadValueIntoGUI(i, reinterpret_cast<WidgetType*>(widget), node->GetInstance(i), node->GetClassMetadata()->m_typeId))
@@ -287,13 +292,28 @@ namespace AzToolsFramework
         : public AZ::ComponentBus
     {
     public:
-        
         /// Fired when property data was changed for the entity.
         /// \param componentId - Id of the component on which property data was changed.
         virtual void OnEntityComponentPropertyChanged(AZ::ComponentId /*componentId*/) {}
     };
 
     using PropertyEditorEntityChangeNotificationBus = AZ::EBus<PropertyEditorEntityChangeNotifications>;
+
+    /**
+     * Event bus for notifying property changes on a specific component.
+     */
+    class PropertyEditorChangeNotifications
+        : public AZ::EBusTraits
+    {
+    public:
+        /// Fired when property data is changed on a component.
+        /// The event is only fired once per component change, even with a multiple selection.
+        /// \param componentType - The type of component which was modified.
+        virtual void OnComponentPropertyChanged(AZ::Uuid /*componentType*/) {}
+    };
+
+    /// Type to inherit to implement PropertyEditorChangeNotifications
+    using PropertyEditorChangeNotificationBus = AZ::EBus<PropertyEditorChangeNotifications>;
 
     /**
      * Describes a field/node's visibility with editor UIs, for consistency across tools
@@ -332,14 +352,14 @@ namespace AzToolsFramework
      * \return ref NodeDisplayVisibility
      */
     NodeDisplayVisibility CalculateNodeDisplayVisibility(const InstanceDataNode& node, bool isSlicePushUI = false);
-    
+
     /**
      * Used by in-editor tools to determine if a node matches the passed in filter
     */
     bool NodeMatchesFilter(const InstanceDataNode& node, const char* filter);
 
     /**
-    * Used by in-editor tools to determine if the parent of a node matches the passed in filter
+     * Used by in-editor tools to determine if the parent of a node matches the passed in filter
     */
     bool NodeGroupMatchesFilter(const InstanceDataNode& node, const char* filter);
 
@@ -353,6 +373,16 @@ namespace AzToolsFramework
      * \param node - instance data hierarchy node for which display name should be determined.
      */
     AZStd::string GetNodeDisplayName(const InstanceDataNode& node);
+
+    /**
+     * Wrapper for OnEntityComponentPropertyChanged EBus call.
+     */
+    void OnEntityComponentPropertyChanged(const AZ::EntityComponentIdPair& entityComponentIdPair);
+
+    /**
+     * Wrapper for OnEntityComponentPropertyChanged EBus call (overload).
+     */
+    void OnEntityComponentPropertyChanged(AZ::EntityId entityId, AZ::ComponentId componentId);
 
     /**
      * A function that evaluates whether a property node is read-only.

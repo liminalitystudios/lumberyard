@@ -27,7 +27,7 @@
 #include <AssetBuilderComponent.h>
 #include <AssetBuilderInfo.h>
 #include <AzFramework/API/BootstrapReaderBus.h>
-#include <AZCore/Memory/AllocatorManager.h>
+#include <AzCore/Memory/AllocatorManager.h>
 
 // Command-line parameter options:
 static const char* const s_paramHelp = "help"; // Print help information.
@@ -43,6 +43,7 @@ static const char* const s_paramOutput = "output"; // For non-resident mode, ful
 static const char* const s_paramDebug = "debug"; // Debug mode for the create and process job of the specified file.
 static const char* const s_paramDebugCreate = "debug_create"; // Debug mode for the create job of the specified file.
 static const char* const s_paramDebugProcess = "debug_process"; // Debug mode for the process job of the specified file.
+static const char* const s_paramPlatformTags = "tags"; // Additional list of tags to add platform tag list.
 
 // Task modes:
 static const char* const s_taskResident = "resident"; // stays up and running indefinitely, accepting jobs via network connection
@@ -73,6 +74,7 @@ void AssetBuilderComponent::PrintHelp()
     AZ_TracePrintf("Help", "  Example: -%s Objects\\Tutorials\\shapes.fbx\n", s_paramDebug);
     AZ_TracePrintf("Help", "%s - Debug mode for the create job of the specified file.\n", s_paramDebugCreate);
     AZ_TracePrintf("Help", "%s - Debug mode for the process job of the specified file.\n", s_paramDebugProcess);
+    AZ_TracePrintf("Help", "%s - Additional tags to add to the debug platform for job processing. One tag can be supplied per option\n", s_paramPlatformTags);
 }
 
 bool AssetBuilderComponent::IsInDebugMode(const AzFramework::CommandLine& commandLine)
@@ -156,7 +158,7 @@ bool AssetBuilderComponent::Run()
         AzFramework::BootstrapReaderRequestBus::Broadcast(&AzFramework::BootstrapReaderRequestBus::Events::SearchConfigurationForKey, "sys_game_folder", false, m_gameName);
     }
 
-    if(!GetParameter(s_paramGameCache, m_gameCache, !isDebugTask))
+    if (!GetParameter(s_paramGameCache, m_gameCache, !isDebugTask))
     {
         if (!isDebugTask)
         {
@@ -392,6 +394,22 @@ bool AssetBuilderComponent::RunDebugTask(AZStd::string&& debugFile, bool runCrea
         AzFramework::StringFunc::Path::Join(binDir.c_str(), "Debug", baseTempDirPath);
         AzFramework::StringFunc::Path::Join(baseTempDirPath.c_str(), fileName.c_str(), baseTempDirPath);
     }
+
+    // Default tags for the debug task are "tools" and "debug"
+    // Additional tags are parsed from command line parameters
+    AZStd::unordered_set<AZStd::string> platformTags{"tools", "debug"};
+    {
+        const AzFramework::CommandLine* commandLine = nullptr;
+        AzFramework::ApplicationRequests::Bus::BroadcastResult(commandLine, &AzFramework::ApplicationRequests::GetCommandLine);
+        if (commandLine)
+        {
+            size_t tagSwitchSize = commandLine->GetNumSwitchValues(s_paramPlatformTags);
+            for (int tagIndex = 0; tagIndex < tagSwitchSize; ++tagIndex)
+            {
+                platformTags.emplace(commandLine->GetSwitchValue(s_paramPlatformTags, tagIndex));
+            }
+        }
+    }
     auto* fileIO = AZ::IO::FileIOBase::GetInstance();
 
     for (auto& it : m_assetBuilderDescMap)
@@ -410,7 +428,9 @@ bool AssetBuilderComponent::RunDebugTask(AZStd::string&& debugFile, bool runCrea
 
         AZStd::vector<AssetBuilderSDK::PlatformInfo> enabledDebugPlatformInfos =
         {
-            {"debug platform", {"tools", "debug"}}
+            {
+                "debug platform", platformTags
+            }
         };
 
         AZStd::vector<AssetBuilderSDK::JobDescriptor> jobDescriptions;
@@ -461,7 +481,9 @@ bool AssetBuilderComponent::RunDebugTask(AZStd::string&& debugFile, bool runCrea
                 return false;
             }
 
-            AssetBuilderSDK::PlatformInfo enabledDebugPlatformInfo = { "debug platform",{ "tools", "debug" } };
+            AssetBuilderSDK::PlatformInfo enabledDebugPlatformInfo = {
+                "debug platform", { "tools", "debug" }
+            };
 
             AssetBuilderSDK::ProcessJobRequest processRequest;
             processRequest.m_watchFolder = watchFolder;
@@ -472,6 +494,7 @@ bool AssetBuilderComponent::RunDebugTask(AZStd::string&& debugFile, bool runCrea
             processRequest.m_tempDirPath = processJobTempDirPath;
             processRequest.m_jobId = 0;
             processRequest.m_builderGuid = builder->m_busId;
+            processRequest.m_platformInfo.m_tags = platformTags;
             AZ_TraceContext("Source", debugFile);
 
             if (jobDescriptions.empty())
@@ -580,22 +603,22 @@ bool AssetBuilderComponent::RunOneShotTask(const AZStd::string& task)
     else if (task == s_taskCreateJob)
     {
         auto func = [this](const AssetBuilderSDK::CreateJobsRequest& request, AssetBuilderSDK::CreateJobsResponse& response)
-        {
-            AZ_TraceContext("Source", request.m_sourceFile);
-            AZ_TraceContext("Platforms", AssetBuilderSDK::PlatformInfo::PlatformVectorAsString(request.m_enabledPlatforms));
-            m_assetBuilderDescMap.at(request.m_builderid)->m_createJobFunction(request, response);
-        };
+            {
+                AZ_TraceContext("Source", request.m_sourceFile);
+                AZ_TraceContext("Platforms", AssetBuilderSDK::PlatformInfo::PlatformVectorAsString(request.m_enabledPlatforms));
+                m_assetBuilderDescMap.at(request.m_builderid)->m_createJobFunction(request, response);
+            };
 
         return HandleTask<AssetBuilderSDK::CreateJobsRequest, AssetBuilderSDK::CreateJobsResponse>(inputFilePath, outputFilePath, func);
     }
     else if (task == s_taskProcessJob)
     {
         auto func = [this](const AssetBuilderSDK::ProcessJobRequest& request, AssetBuilderSDK::ProcessJobResponse& response)
-        {
-            AZ_TraceContext("Source", request.m_fullPath);
-            AZ_TraceContext("Platform", request.m_platformInfo.m_identifier);
-            ProcessJob(m_assetBuilderDescMap.at(request.m_builderGuid)->m_processJobFunction, request, response);
-        };
+            {
+                AZ_TraceContext("Source", request.m_fullPath);
+                AZ_TraceContext("Platform", request.m_platformInfo.m_identifier);
+                ProcessJob(m_assetBuilderDescMap.at(request.m_builderGuid)->m_processJobFunction, request, response);
+            };
 
         return HandleTask<AssetBuilderSDK::ProcessJobRequest, AssetBuilderSDK::ProcessJobResponse>(inputFilePath, outputFilePath, func);
     }
@@ -839,7 +862,7 @@ const char* AssetBuilderComponent::GetLibraryExtension()
     return "*.dll";
 #elif defined(AZ_PLATFORM_LINUX)
     return "*.so";
-#elif defined(AZ_PLATFORM_APPLE)
+#elif AZ_TRAIT_OS_PLATFORM_APPLE
     return "*.dylib";
 #endif
 }
@@ -864,20 +887,22 @@ bool AssetBuilderComponent::LoadBuilder(const AZStd::string& filePath)
 {
     auto assetBuilderInfo = AZStd::make_unique<AssetBuilder::ExternalModuleAssetBuilderInfo>(QString::fromUtf8(filePath.c_str()));
 
-    if (!assetBuilderInfo->IsLoaded())
+    if (assetBuilderInfo->IsAssetBuilder())
     {
-        AZ_Warning("AssetBuilder", false, "AssetBuilder was not able to load the library: %s\n", filePath.c_str());
-        return false;
+        if (!assetBuilderInfo->IsLoaded())
+        {
+            AZ_Warning("AssetBuilder", false, "AssetBuilder was not able to load the library: %s\n", filePath.c_str());
+            return false;
+        }
+
+        AZ_TracePrintf("AssetBuilder", "LoadBuilder - Initializing and registering builder [%s]\n", assetBuilderInfo->GetName().toUtf8().constData());
+
+        m_currentAssetBuilder = assetBuilderInfo.get();
+        m_currentAssetBuilder->Initialize();
+        m_currentAssetBuilder = nullptr;
+
+        m_assetBuilderInfoList.push_back(AZStd::move(assetBuilderInfo));
     }
-
-    AZ_TracePrintf("AssetBuilder", "LoadBuilder - Initializing and registering builder [%s]\n", assetBuilderInfo->GetName().toUtf8().constData());
-
-    m_currentAssetBuilder = assetBuilderInfo.get();
-    m_currentAssetBuilder->Initialize();
-    m_currentAssetBuilder = nullptr;
-
-    m_assetBuilderInfoList.push_back(AZStd::move(assetBuilderInfo));
-
     return true;
 }
 

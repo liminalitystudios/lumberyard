@@ -84,6 +84,7 @@ namespace PhysXCharacters
         void SetSlopeLimitDegrees(float slopeLimitDegrees) override;
         AZ::Vector3 GetVelocity() const override;
         AZ::Vector3 TryRelativeMove(const AZ::Vector3& deltaPosition, float deltaTime) override;
+        bool IsPresent() const override { return true; }
 
         // CharacterControllerRequestBus
         void Resize(float height) override;
@@ -105,6 +106,6 @@ namespace PhysXCharacters
 
         AZStd::unique_ptr<Physics::CharacterConfiguration> m_characterConfig;
         AZStd::unique_ptr<Physics::ShapeConfiguration> m_shapeConfig;
-        AZStd::shared_ptr<Physics::Character> m_controller;
+        AZStd::unique_ptr<Physics::Character> m_controller;
     };
 } // namespace PhysXCharacters

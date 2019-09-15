@@ -10,9 +10,9 @@
 *
 */
 
-#include "AnimGraphParameterCommands.h"
-#include "AnimGraphConnectionCommands.h"
-#include "CommandManager.h"
+#include <EMotionFX/CommandSystem/Source/AnimGraphParameterCommands.h>
+#include <EMotionFX/CommandSystem/Source/AnimGraphConnectionCommands.h>
+#include <EMotionFX/CommandSystem/Source/CommandManager.h>
 
 #include <AzCore/std/sort.h>
 #include <EMotionFX/Source/ActorInstance.h>
@@ -42,9 +42,7 @@ namespace CommandSystem
     }
 
 
-    CommandAnimGraphCreateParameter::~CommandAnimGraphCreateParameter()
-    {
-    }
+    CommandAnimGraphCreateParameter::~CommandAnimGraphCreateParameter() = default;
 
 
     bool CommandAnimGraphCreateParameter::Execute(const MCore::CommandLine& parameters, AZStd::string& outResult)
@@ -170,6 +168,14 @@ namespace CommandSystem
             const AZ::Outcome<size_t> valueParameterIndex = animGraph->FindValueParameterIndex(static_cast<const EMotionFX::ValueParameter*>(param));
             AZ_Assert(valueParameterIndex.IsSuccess(), "Expected valid value parameter index.");
 
+            // Update all anim graph instances.
+            const size_t numInstances = animGraph->GetNumAnimGraphInstances();
+            for (size_t i = 0; i < numInstances; ++i)
+            {
+                EMotionFX::AnimGraphInstance* animGraphInstance = animGraph->GetAnimGraphInstance(i);
+                animGraphInstance->InsertParameterValue(static_cast<uint32>(valueParameterIndex.GetValue()));
+            }
+
             AZStd::vector<EMotionFX::AnimGraphObject*> affectedObjects;
             animGraph->RecursiveCollectObjectsOfType(azrtti_typeid<EMotionFX::ObjectAffectedByParameterChanges>(), affectedObjects);
             EMotionFX::GetAnimGraphManager().RecursiveCollectObjectsAffectedBy(animGraph, affectedObjects);
@@ -178,14 +184,6 @@ namespace CommandSystem
             {
                 EMotionFX::ObjectAffectedByParameterChanges* affectedObjectByParameterChanges = azdynamic_cast<EMotionFX::ObjectAffectedByParameterChanges*>(affectedObject);
                 affectedObjectByParameterChanges->ParameterAdded(parameterIndex.GetValue());
-            }
-
-            // Update all anim graph instances.
-            const size_t numInstances = animGraph->GetNumAnimGraphInstances();
-            for (size_t i = 0; i < numInstances; ++i)
-            {
-                EMotionFX::AnimGraphInstance* animGraphInstance = animGraph->GetAnimGraphInstance(i);
-                animGraphInstance->InsertParameterValue(static_cast<uint32>(valueParameterIndex.GetValue()));
             }
         }
 
@@ -256,9 +254,7 @@ namespace CommandSystem
     }
 
 
-    CommandAnimGraphRemoveParameter::~CommandAnimGraphRemoveParameter()
-    {
-    }
+    CommandAnimGraphRemoveParameter::~CommandAnimGraphRemoveParameter() = default;
 
 
     bool CommandAnimGraphRemoveParameter::Execute(const MCore::CommandLine& parameters, AZStd::string& outResult)
@@ -395,9 +391,7 @@ namespace CommandSystem
     }
 
 
-    CommandAnimGraphAdjustParameter::~CommandAnimGraphAdjustParameter()
-    {
-    }
+    CommandAnimGraphAdjustParameter::~CommandAnimGraphAdjustParameter() = default;
 
 
     bool CommandAnimGraphAdjustParameter::Execute(const MCore::CommandLine& parameters, AZStd::string& outResult)
@@ -685,9 +679,7 @@ namespace CommandSystem
     }
 
 
-    CommandAnimGraphMoveParameter::~CommandAnimGraphMoveParameter()
-    {
-    }
+    CommandAnimGraphMoveParameter::~CommandAnimGraphMoveParameter() = default;
 
 
     bool CommandAnimGraphMoveParameter::Execute(const MCore::CommandLine& parameters, AZStd::string& outResult)
@@ -917,6 +909,42 @@ namespace CommandSystem
         }
     }
 
+    void RemoveConnectionsForParameter(EMotionFX::AnimGraph* animGraph, const char* parameterName, MCore::CommandGroup& commandGroup)
+    {
+        AZStd::vector<EMotionFX::AnimGraphNode*> parameterNodes;
+        animGraph->RecursiveCollectNodesOfType(azrtti_typeid<EMotionFX::BlendTreeParameterNode>(), &parameterNodes);
+
+        AZStd::vector<AZStd::pair<EMotionFX::BlendTreeConnection*, EMotionFX::AnimGraphNode*>> outgoingConnectionsFromThisPort;
+        for (const EMotionFX::AnimGraphNode* parameterNode : parameterNodes)
+        {
+            const AZ::u32 sourcePortIndex = parameterNode->FindOutputPortIndex(parameterName);
+            parameterNode->CollectOutgoingConnections(outgoingConnectionsFromThisPort, sourcePortIndex); // outgoingConnectionsFromThisPort will be cleared inside the function.
+
+            for (const auto& connectionPair : outgoingConnectionsFromThisPort)
+            {
+                const EMotionFX::AnimGraphNode* targetNode = connectionPair.second;
+                const EMotionFX::BlendTreeConnection* connection = connectionPair.first;
+                DeleteNodeConnection(&commandGroup, targetNode, connection);
+            }
+        }
+    }
+
+    // Remove all connections linked to parameter nodes inside blend trees for the parameters about to be removed back to front.
+    void RemoveConnectionsForParameters(EMotionFX::AnimGraph* animGraph, const AZStd::vector<AZStd::string>& parameterNames, MCore::CommandGroup& commandGroup)
+    {
+        const size_t numValueParameters = animGraph->GetNumValueParameters();
+        for (size_t i = 0; i < numValueParameters; ++i)
+        {
+            const size_t valueParameterIndex = numValueParameters - i - 1;
+            const EMotionFX::ValueParameter* valueParameter = animGraph->FindValueParameter(valueParameterIndex);
+            AZ_Assert(valueParameter, "Value parameter with index %d not found.", valueParameterIndex);
+
+            if (AZStd::find(parameterNames.begin(), parameterNames.end(), valueParameter->GetName().c_str()) != parameterNames.end())
+            {
+                RemoveConnectionsForParameter(animGraph, valueParameter->GetName().c_str(), commandGroup);
+            }
+        }
+    }
 
     bool BuildRemoveParametersCommandGroup(EMotionFX::AnimGraph* animGraph, const AZStd::vector<AZStd::string>& parameterNamesToRemove, MCore::CommandGroup* commandGroup)
     {
@@ -946,13 +974,16 @@ namespace CommandSystem
             usedCommandGroup = &internalCommandGroup;
         }
 
+        // 1. Remove all connections linked to parameter nodes inside blend trees for the parameters about to be removed back to front.
+        RemoveConnectionsForParameters(animGraph, parameterNamesToRemove, *usedCommandGroup);
+
+        // 2. Remove the actual parameters.
         for (const AZStd::string& parameterName : parameterNamesToRemove)
         {
             commandString = AZStd::string::format("AnimGraphRemoveParameter -animGraphID %i -name \"%s\"", animGraph->GetID(), parameterName.c_str());
             usedCommandGroup->AddCommandString(commandString);
         }
 
-        // Is the command group parameter set?
         if (!commandGroup)
         {
             if (!GetCommandManager()->ExecuteCommandGroup(internalCommandGroup, outResult))
@@ -965,4 +996,4 @@ namespace CommandSystem
         return true;
     }
 
-} // namesapce EMotionFX
+} // namespace CommandSystem

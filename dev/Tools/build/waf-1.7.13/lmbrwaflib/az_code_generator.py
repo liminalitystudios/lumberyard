@@ -12,9 +12,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 #
 
-from waflib.TaskGen import feature, after_method, before_method
+from waflib.TaskGen import feature, after_method, before_method, taskgen_method
 from waflib.Context import BOTH
+from waflib.Configure import conf
 from waflib import Node, Task, Utils, Logs, Errors, Options
+from cry_utils import append_to_unique_list
 from binascii import hexlify
 from collections import defaultdict
 from pipes import quote
@@ -60,13 +62,31 @@ def get_input_dir_node(tg):
     return input_dir
 
 
-def get_output_dir_node(tg):
+@conf
+def azcg_output_dir_node(ctx, target_name=None, additional_subpath=None):
     """
     Gets the output dir from a task generator.
     """
-    output_dir = tg.bld.bldnode.make_node('azcg/{}.{}'.format(tg.name,tg.idx))
+    if target_name:
+        output_dir = ctx.bldnode.make_node('azcg/{}'.format(target_name))
+    else:
+        output_dir = ctx.bldnode.make_node('azcg')
+    if additional_subpath:
+        output_dir = output_dir.make_node(additional_subpath)
     return output_dir
 
+@taskgen_method
+def get_azcg_output_dir_node(tg, additional_subpath=None, tg_name_override=None):
+    """
+    Gets the output dir from a task generator.
+    """
+    tg_name = tg_name_override if tg_name_override else tg.name
+    # Apply any override for the az_code_gen target, otherwise fall back to the default behavior
+    return getattr(tg, 'az_code_gen_override_target', azcg_output_dir_node(tg.bld, tg_name, additional_subpath))
+
+@taskgen_method
+def get_azcg_output_dir_path(tg, additional_subpath=None, tg_name_override=None):
+    return get_azcg_output_dir_node(tg, additional_subpath, tg_name_override).abspath()
 
 @feature('az_code_gen')
 @before_method('process_use')
@@ -74,8 +94,11 @@ def add_codegen_includes(self):
     for attr in ('includes', 'export_includes'):
         if not hasattr(self, attr):
             setattr(self, attr, list())
-    include_path_to_inject = get_output_dir_node(self)
+    include_path_to_inject = get_azcg_output_dir_node(self)
     self.includes.append(include_path_to_inject)
+    input_dir_node = get_input_dir_node(self)
+    if input_dir_node not in self.includes:
+        self.includes.append(input_dir_node)
     self.export_includes.append(include_path_to_inject)
 
 
@@ -95,12 +118,17 @@ def create_code_generator_tasks(self):
     azcg_dir = self.env['CODE_GENERATOR_PATH'][0]
     azcg_dir_node = self.bld.root.find_node(azcg_dir)
     if azcg_dir_node:
-        azcg_dep_nodes = azcg_dir_node.ant_glob('**/*')
+        # For a clean build, .pyc files don't exist at this point, but for the later incremental build, .pyc files will be added as node dependencies and will change the task signature.
+        # Do not add .pyc files as dependencies.
+        azcg_dep_nodes = azcg_dir_node.ant_glob('**/*', excl=Node.exclude_regs + '\n**/*.pyc')
     else:
         Logs.warn('az_code_gen: Unable to find azcg directory. Code Generator tasks will not have the utility/scripts as dependencies')
 
     # this script is a dependency
-    script_node = self.bld.root.make_node(__file__)
+    script_node = self.bld.root.make_node(os.path.abspath(__file__))
+    # Use .py file as dependency instead of .pyc file.
+    if script_node.suffix() == '.pyc':
+        script_node = script_node.change_ext('.py')
     azcg_dep_nodes.append(script_node)
 
     for az_code_gen_pass in getattr(self, 'az_code_gen', []):
@@ -127,6 +155,8 @@ def create_code_generator_tasks(self):
                 'No code generation performed for target {}'.format(self.target))
             return
 
+        code_gen_override_output = az_code_gen_pass.get('override_output', None)
+
         # Create one task per input file/list
         for input_item in code_gen_input:
             # Auto promote non-lists to lists
@@ -135,10 +165,10 @@ def create_code_generator_tasks(self):
             else:
                 input_file_list = input_item
 
-            create_az_code_generator_task(self, input_file_list, code_generator_scripts, code_gen_arguments, code_gen_options, azcg_dep_nodes)
+            create_az_code_generator_task(self, input_file_list, code_generator_scripts, code_gen_arguments, code_gen_options, azcg_dep_nodes, code_gen_override_output)
 
 
-def create_az_code_generator_task(self, input_file_list, code_generator_scripts, code_gen_arguments, code_gen_options, azcg_dep_nodes):
+def create_az_code_generator_task(self, input_file_list, code_generator_scripts, code_gen_arguments, code_gen_options, azcg_dep_nodes, code_gen_override_output):
     input_dir_node = get_input_dir_node(self)
     input_nodes = [in_file if isinstance(in_file, waflib.Node.Node) else input_dir_node.make_node(clean_path(in_file)) for in_file in input_file_list]
 
@@ -151,7 +181,7 @@ def create_az_code_generator_task(self, input_file_list, code_generator_scripts,
 
     new_task.path = self.path
     new_task.input_dir = input_dir_node
-    new_task.output_dir = get_output_dir_node(self)
+    new_task.output_dir = code_gen_override_output or get_azcg_output_dir_node(self)
     for script in code_generator_scripts:
         script_node = self.path.find_or_declare(script)
         if script_node is None:
@@ -312,7 +342,7 @@ class az_code_gen(Task.Task):
             if output_node is None:
                 raise Errors.WafError('[ERROR] az_code_gen: Unable to find generated file as node {}'.format(output_path))
 
-            self.outputs.append(output_node)
+            append_to_unique_list(self.outputs, output_node)
 
             if should_add_to_build:
                 # Add to persistent link list
@@ -340,6 +370,12 @@ class az_code_gen(Task.Task):
         # set_pdb_flags. We compute PDB file path and add the requisite /Fd flag
         # This enables debug symbols for code outputted by azcg
         if 'msvc' in (self.generator.env.CC_NAME, self.generator.env.CXX_NAME):
+
+            # The created_task from the original generator will not be able to go through the
+            # 'verify_compiler_options_msvc' function at this point, so we will manually verify
+            # the compiler options here (to strip out conflicting flags)
+            verify_options_common(created_task.env)
+
             # Not having PDBs stops CL.exe working for precompiled header when we have VCCompiler set to true for IB...
             # When DISABLE_DEBUG_SYMBOLS_OVERRIDE doesn't exist in the dictionary it returns []
             # which will results to false in this check.
@@ -475,7 +511,7 @@ class az_code_gen(Task.Task):
                     azcg_paths.append(output_path)
 
             # Append any additional paths relative to the output directory found in export includes
-            output_dir_node = get_output_dir_node(self.generator)
+            output_dir_node = get_azcg_output_dir_node(self.generator)
             for export_include in self.generator.export_includes:
                 if isinstance(export_include, waflib.Node.Node) and export_include.is_child_of(output_dir_node):
                     export_path = export_include.abspath()
@@ -621,7 +657,7 @@ class az_code_gen(Task.Task):
 
         if self.error_output_file_node:
             self.add_argument('-redirect-output-file "{}"'.format(clean_path(self.error_output_file_node.abspath())))
-        
+
         if 'CLANG_SEARCH_PATHS' in self.env:
             self.add_argument('-resource-dir "{}"'.format(self.env['CLANG_SEARCH_PATHS']['libraries'][0]))
 
@@ -647,6 +683,13 @@ class az_code_gen(Task.Task):
         status, self.argument_file = self.write_argument_list_to_file()
         if not status:
             raise Errors.WafError('[ERROR] az_code_gen task creation failed')
+
+    def can_retrieve_cache(self):
+        try:
+            self.outputs = self.azcg_get('AZCG_OUTPUTS', [])
+        except KeyError:
+            return False
+        return super(az_code_gen, self).can_retrieve_cache()
 
     def run(self):
         # clear link dependencies
@@ -678,7 +721,7 @@ class az_code_gen(Task.Task):
                     return Task.RUN_ME
 
             # Also add the raw output path
-            self.generator.env.append_unique('INCPATHS', get_output_dir_node(self.generator).abspath())
+            self.generator.env.append_unique('INCPATHS', get_azcg_output_dir_node(self.generator).abspath())
 
             # Also add paths we stored from prior builds
             azcg_paths = self.azcg_get('AZCG_INCPATHS', [])
@@ -736,47 +779,62 @@ class az_code_gen(Task.Task):
             return path_to_node(base_node, path, cached_nodes)
 
     def post_run(self):
-        # Register output files generated by the code gen execution
-        self.process_generated_output()
+        if hasattr(self, 'cached'):
+            # Also add the raw output path
+            self.generator.env.append_unique('INCPATHS', get_azcg_output_dir_node(self.generator).abspath())
 
-        bld = self.generator.bld
-        dep_node = None
-        resolved_nodes = []
+            # Also add paths we stored from prior builds
+            azcg_paths = self.azcg_get('AZCG_INCPATHS', [])
+            self.propagate_azcg_incpaths(azcg_paths)
 
-        # Resolve registered dependencies we got into dependency nodes
-        for path in self.registered_dependencies:
-            dep_node = self.get_node_from_dependency_path(path)
+            # link_inputs is a list of nodes that need to be added to the link each time
+            for link_node in self.azcg_get('link_inputs', []):
+                if not self.add_link_task(link_node):
+                    return Task.EXCEPTION
 
-            if dep_node:
-                if not (dep_node.is_child_of(bld.srcnode) or dep_node.is_child_of(bld.bldnode)):
-                    # System library
-                    continue
+            self.generator.source += self.outputs
+        else:
+            # Register output files generated by the code gen execution
+            self.process_generated_output()
 
-                if dep_node in self.inputs:
-                    # Self-dependency
-                    continue
+            bld = self.generator.bld
+            dep_node = None
+            resolved_nodes = []
 
-                if dep_node in self.outputs:
-                    # Circular dependency
-                    continue
+            # Resolve registered dependencies we got into dependency nodes
+            for path in self.registered_dependencies:
+                dep_node = self.get_node_from_dependency_path(path)
 
-                resolved_nodes.append(dep_node)
-            else:
-                Logs.error('az_code_gen: Unable to find dependency file as node: {}'.format(path))
+                if dep_node:
+                    if not (dep_node.is_child_of(bld.srcnode) or dep_node.is_child_of(bld.bldnode)):
+                        # System library
+                        continue
 
-        # Add azcg_deps and script nodes as dependencies
-        for dep_node in itertools.chain(self.azcg_deps, self.script_nodes):
-            resolved_nodes.append(dep_node)
+                    if dep_node in self.inputs:
+                        # Self-dependency
+                        continue
 
-        bld.node_deps[self.uid()] = resolved_nodes
+                    if dep_node in self.outputs:
+                        # Circular dependency
+                        continue
 
-        # force waf to recompute a full signature for this task (we may have new/deleted dependencies we need it to account for)
-        try:
-            del self.cache_sig
-        except:
-            pass
+                    append_to_unique_list(resolved_nodes, dep_node)
+                else:
+                    Logs.error('az_code_gen: Unable to find dependency file as node: {}'.format(path))
 
-        self.azcg_set('AZCG_OUTPUTS', self.outputs)
+            # Add azcg_deps and script nodes as dependencies
+            for dep_node in itertools.chain(self.azcg_deps, self.script_nodes):
+                append_to_unique_list(resolved_nodes, dep_node)
+
+            bld.node_deps[self.uid()] = resolved_nodes
+
+            # force waf to recompute a full signature for this task (we may have new/deleted dependencies we need it to account for)
+            try:
+                del self.cache_sig
+            except:
+                pass
+
+            self.azcg_set('AZCG_OUTPUTS', self.outputs)
 
         Task.Task.post_run(self)
 
@@ -789,3 +847,14 @@ class az_code_gen(Task.Task):
         for output in self.outputs:
             if not output in self.azcg_get('link_inputs', []):
                 output.sig = output.cache_sig = Utils.h_file(output.abspath())
+
+@conf
+def is_azcodegen_node(ctx, node):
+    azcg_node = ctx.bldnode.make_node('azcg')
+
+    y = id(azcg_node)
+    while node.parent:
+        if id(node) == y:
+            return True
+        node = node.parent
+    return False

@@ -12,12 +12,24 @@
 
 #pragma once
 
-#include <PxPhysicsAPI.h>
-
 #include <AzCore/EBus/EBus.h>
 #include <AzFramework/Physics/RigidBody.h>
 #include <AzFramework/Physics/Shape.h>
 #include "ConfigurationBus.h"
+
+namespace physx
+{
+    class PxAllocatorCallback;
+    class PxErrorCallback;
+    class PxScene;
+    class PxSceneDesc;
+    class PxConvexMesh;
+    class PxTriangleMesh;
+    class PxShape;
+    class PxCooking;
+    class PxControllerManager;
+    struct PxFilterData;
+}
 
 namespace PhysX
 {
@@ -98,6 +110,13 @@ namespace PhysX
 
         /// Disconnects from the PhysX Visual Debugger.
         virtual void DisconnectFromPvd() = 0;
+
+        /// Expose the PhysX allocator from this Gem for use by other Gems that need to initialize their own instances of the PhysX SDK.
+        virtual physx::PxAllocatorCallback* GetPhysXAllocatorCallback() = 0;
+
+        /// Expose the PhysX error callback from this Gem for use by other Gems that need to initialize their own instances of the PhysX SDK.
+        virtual physx::PxErrorCallback* GetPhysXErrorCallback() = 0;
+
 
         /// Gets the cooking object.
         /// It is possible to update the current cooking params with setParams on PxCooking,

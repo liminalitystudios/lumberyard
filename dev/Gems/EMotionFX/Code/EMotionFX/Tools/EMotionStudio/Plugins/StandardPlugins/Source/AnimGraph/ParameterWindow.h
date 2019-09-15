@@ -15,10 +15,11 @@
 #include <AzToolsFramework/UI/PropertyEditor/ReflectedPropertyEditor.hxx>
 #include <EMotionFX/Source/AnimGraphBus.h>
 #include <EMotionStudio/Plugins/StandardPlugins/Source/StandardPluginsConfig.h>
+#include <QDialog>
 #include <QPointer>
 #include <QWidget>
+#include <QLineEdit>
 
-QT_FORWARD_DECLARE_CLASS(QLineEdit)
 QT_FORWARD_DECLARE_CLASS(QPushButton)
 QT_FORWARD_DECLARE_CLASS(QScrollArea)
 QT_FORWARD_DECLARE_CLASS(QTreeWidget)
@@ -30,12 +31,19 @@ namespace EMotionFX
 {
     class GroupParameter;
     class ValueParameter;
-}
+    class AnimGraph;
+    class Parameter;
+} // namespace EMotionFX
+
+namespace MCore
+{
+    class Attribute;
+} // namespace MCore
 
 namespace AzQtComponents
 {
     class FilteredSearchWidget;
-}
+} // namespace AzQtComponents
 
 namespace EMStudio
 {
@@ -50,7 +58,6 @@ namespace EMStudio
 
     public:
         ParameterCreateRenameWindow(const char* windowTitle, const char* topText, const char* defaultName, const char* oldName, const AZStd::vector<AZStd::string>& invalidNames, QWidget* parent);
-        virtual ~ParameterCreateRenameWindow();
 
         AZStd::string GetName() const
         {
@@ -78,7 +85,6 @@ namespace EMStudio
 
     public:
         ParameterWindow(AnimGraphPlugin* plugin);
-        ~ParameterWindow();
 
         void Reinit(bool forceReinit = false);
 
@@ -101,6 +107,8 @@ namespace EMStudio
 
         void UpdateParameterValues();
 
+        void ClearParameters(bool showConfirmationDialog = true);
+
         // AnimGraphNotificationBus
         void OnParameterActionTriggered(const EMotionFX::ValueParameter* valueParameter) override;
 
@@ -113,7 +121,7 @@ namespace EMStudio
         void OnAddParameter();
         void OnEditButton();
         void OnRemoveButton();
-        void OnClearButton();
+        void OnClearButton() { ClearParameters(); }
 
         void OnGroupCollapsed(QTreeWidgetItem* item);
         void OnGroupExpanded(QTreeWidgetItem* item);

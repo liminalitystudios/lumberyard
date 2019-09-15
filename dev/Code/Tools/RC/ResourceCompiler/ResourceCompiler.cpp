@@ -73,8 +73,9 @@
 #include <QSettings>
 #include <QThread>
 #include <AzToolsFramework/API/ToolsApplicationAPI.h>
+#include <AzCore/Memory/AllocatorManager.h>
 
-#if defined(AZ_PLATFORM_APPLE)
+#if AZ_TRAIT_OS_PLATFORM_APPLE
 #include <mach-o/dyld.h>  // Needed for _NSGetExecutablePath
 #endif
 
@@ -155,14 +156,13 @@ ResourceCompiler::ResourceCompiler()
     , m_memorySizePeakMb(0)
     , m_pAssetWriter(nullptr)
     , m_pPakManager(nullptr)
-    , m_systemDll(nullptr)
     , m_currentRcCompileFileInfo(nullptr)
 {
     // install our ctrl handler by default, before we load system modules.  Unfortunately
     // some modules may install their own, so we will install ours again after loading perforce and crysystem.
 #if defined(AZ_PLATFORM_WINDOWS)
     SetConsoleCtrlHandler((PHANDLER_ROUTINE)CtrlHandlerRoutine, TRUE);
-#elif defined(AZ_PLATFORM_APPLE) || defined(AZ_PLATFORM_LINUX)
+#elif AZ_TRAIT_OS_PLATFORM_APPLE || defined(AZ_PLATFORM_LINUX)
     signal(SIGINT, CtrlHandlerRoutine);
 #endif
 }
@@ -170,39 +170,6 @@ ResourceCompiler::ResourceCompiler()
 ResourceCompiler::~ResourceCompiler()
 {
     delete m_pPakManager;
-
-    {
-        if (m_pSystem)
-        {
-            AssertInterceptor interceptor;
-            m_pSystem.reset();
-        }
-
-
-        if (m_systemDll)
-        {
-            typedef void*(* PtrFunc_ModuleShutdownISystem)(ISystem* pSystem);
-            PtrFunc_ModuleShutdownISystem pfnModuleShutdownISystem =
-                reinterpret_cast<PtrFunc_ModuleShutdownISystem>(CryGetProcAddress(m_systemDll, "ModuleShutdownISystem"));
-
-            if (pfnModuleShutdownISystem)
-            {
-                AssertInterceptor interceptor;
-                pfnModuleShutdownISystem(nullptr);
-            }
-
-            while (CryFreeLibrary(m_systemDll))
-            {
-                // keep freeing until free.
-                // this is unfortunate, but CryMemoryManager currently in its internal impl grabs an extra handle to this and does not free it nor
-                // does it have an interface to do so.
-                // until we can rewrite the memory manager init and shutdown code, we need to do this here because we need crysystem GONE
-                // before we attempt to destroy the memory managers which it uses.
-                ;
-            }
-            m_systemDll = nullptr;
-        }
-    }
 }
 
 //////////////////////////////////////////////////////////////////////////
@@ -732,7 +699,12 @@ bool ResourceCompiler::CompileFilesBySingleProcess(const std::vector<RcFile>& fi
         // abort!
         return false;
     }
-
+    bool bRecompress = false;
+    if (config->GetAsBool("recompress", false, false))
+    {
+        RCLog("Recompressing files with fastest decompressor for data");
+        bRecompress = true;
+    }
     if (config->GetAsBool("copyonly", false, true) || config->GetAsBool("copyonlynooverwrite", false, true))
     {
         const string targetroot = PathHelpers::ToPlatformPath(PathHelpers::CanonicalizePath(config->GetAsString("targetroot", "", "")));
@@ -746,9 +718,7 @@ bool ResourceCompiler::CompileFilesBySingleProcess(const std::vector<RcFile>& fi
             RCLogError("/copyonlynooverwrite: you must specify /targetroot.");
             return false;
         }
-
-        CopyFiles(filesToConvert.m_allFiles, config->GetAsBool("copyonlynooverwrite", false, true));
-
+        CopyFiles(filesToConvert.m_allFiles, config->GetAsBool("copyonlynooverwrite", false, true), bRecompress);
         return true;
     }
 
@@ -1338,11 +1308,6 @@ void ResourceCompiler::LogMultiLine(const char* szText)
     }
 }
 
-SSystemGlobalEnvironment* ResourceCompiler::GetSystemEnvironment()
-{
-    return gEnv;
-}
-
 //////////////////////////////////////////////////////////////////////////
 void ResourceCompiler::ShowHelp(const bool bDetailed)
 {
@@ -1403,7 +1368,7 @@ static bool RegisterConvertors(ResourceCompiler* pRc)
     {
 #if defined(AZ_PLATFORM_WINDOWS)
         HMODULE hPlugin = CryLoadLibrary(pluginFilename);
-#elif defined(AZ_PLATFORM_APPLE) || defined(AZ_PLATFORM_LINUX)
+#elif AZ_TRAIT_OS_PLATFORM_APPLE || defined(AZ_PLATFORM_LINUX)
         HMODULE hPlugin = CryLoadLibrary(pluginFilename, false, false);
 #endif
         if (!hPlugin)
@@ -2027,6 +1992,8 @@ int rcmain(int argc, char** argv, char** envp)
     rc.RegisterKey("port", "Specifies the port that should be used to connect to the asset processor.  If not set, the default from the bootstrap cfg will be used instead");
     rc.RegisterKey("approot", "Specifies a custom directory for the engine root path. This path should contain bootstrap.cfg.");
     rc.RegisterKey("branchtoken", "Specifies a branchtoken that should be used by the RC to negotiate with the asset processor. if not set it will be set from the bootstrap file.");
+    rc.RegisterKey("recompress", "Recompress a pack file during a copy job using the multi-variant process which picks the fastest decompressor");
+    rc.RegisterKey("use_fastest", "Checks every compressor and uses the one that decompresses the data fastest when adding files to a PAK");
 
     string fileSpec;
     bool bUnitTestMode = false;
@@ -2193,8 +2160,7 @@ int rcmain(int argc, char** argv, char** envp)
             logDir = "@log@/";
         }
         string logFile = logDir + "Log.txt";
-        SSystemInitParams systemInitParams;
-
+        
         const char* configSearchPaths[] =
         {
             ".",
@@ -2205,33 +2171,6 @@ int rcmain(int argc, char** argv, char** envp)
         const int maxLevelsToSearchUp = 6;
         CEngineConfig cfg(configSearchPaths, sizeof(configSearchPaths) / sizeof(configSearchPaths[0]), maxLevelsToSearchUp);
 
-
-        cfg.CopyToStartupParams(systemInitParams);
-
-        systemInitParams.bDedicatedServer = true;
-        systemInitParams.bEditor = false;
-        systemInitParams.bExecuteCommandLine = false;
-        systemInitParams.bMinimal = true;
-        systemInitParams.bSkipPhysics = true;
-        systemInitParams.waitForConnection = false;
-        systemInitParams.bNoRandom = false;
-        systemInitParams.bPreview = true;
-        systemInitParams.bShaderCacheGen = false;
-        systemInitParams.bSkipConsole = false;
-        systemInitParams.bSkipFont = true;
-        systemInitParams.bSkipNetwork = true;
-        systemInitParams.bSkipRenderer = true;
-        systemInitParams.bTesting = false;
-        systemInitParams.bTestMode = false;
-        systemInitParams.bSkipMovie = true;
-        systemInitParams.bSkipAnimation = true;
-        systemInitParams.bSkipScriptSystem = true;
-        systemInitParams.bToolMode = true;
-        systemInitParams.sLogFileName = logFile.c_str();
-        systemInitParams.autoBackupLogs = false;
-        systemInitParams.pSharedEnvironment = AZ::Environment::GetInstance();
-        systemInitParams.bUnattendedMode = config.GetAsBool("unattended", false, false);
-
         //allow override from commandline
         string gameName = config.GetAsString("gamesubdirectory", "", "");
         if (!gameName.empty())
@@ -2239,32 +2178,30 @@ int rcmain(int argc, char** argv, char** envp)
             cfg.m_gameFolder = gameName;
         }
 
-        rc.InitSystem(systemInitParams);
-
         // only after installing and setting those up, do we install our handler becuase perforce does this too...
 #if defined(AZ_PLATFORM_WINDOWS)
         SetConsoleCtrlHandler((PHANDLER_ROUTINE)CtrlHandlerRoutine, TRUE);
-#elif defined(AZ_PLATFORM_APPLE) || defined(AZ_PLATFORM_LINUX)
+#elif AZ_TRAIT_OS_PLATFORM_APPLE || defined(AZ_PLATFORM_LINUX)
         signal(SIGINT, CtrlHandlerRoutine);
 #endif
         // and because we're a tool, add the tool folders:
-        if ((gEnv) && (gEnv->pFileIO))
+        if (AZ::IO::FileIOBase* pFileIO = AZ::IO::FileIOBase::GetInstance())
         {
             const char* engineRoot = nullptr;
             AzToolsFramework::ToolsApplicationRequestBus::BroadcastResult(engineRoot, &AzToolsFramework::ToolsApplicationRequests::GetEngineRootPath);
             if (engineRoot != nullptr)
             {
-                gEnv->pFileIO->SetAlias("@engroot@", engineRoot);
+                pFileIO->SetAlias("@engroot@", engineRoot);
             }
             else
             {
-                gEnv->pFileIO->SetAlias("@engroot@", cfg.m_rootFolder.c_str());
+                pFileIO->SetAlias("@engroot@", cfg.m_rootFolder.c_str());
             }
-            gEnv->pFileIO->SetAlias("@devroot@", cfg.m_rootFolder.c_str());
+            pFileIO->SetAlias("@devroot@", cfg.m_rootFolder.c_str());
 
             string gamePath = config.GetAsString("gameroot", "", "");
             string devAssets = (!gamePath.empty()) ? gamePath : string(cfg.m_rootFolder + "/" + cfg.m_gameFolder);
-            gEnv->pFileIO->SetAlias("@devassets@", devAssets.c_str());
+            pFileIO->SetAlias("@devassets@", devAssets.c_str());
 
             string appRootInput = config.GetAsString("approot", "", "");
             string appRoot = (!appRootInput.empty()) ? appRootInput : ResourceCompiler::GetAppRootPathFromGameRoot(devAssets);
@@ -2407,12 +2344,20 @@ int __cdecl main(int argc, char** argv, char** envp)
     AZ::AllocatorInstance<AZ::LegacyAllocator>::Create();
     AZ::AllocatorInstance<CryStringAllocator>::Create();
 
-    int exitCode = rcmain(argc, argv, envp);    
+    int exitCode = 1;
+    {
+        AZ::IO::LocalFileIO localFile;
+        AZ::IO::FileIOBase::SetInstance(&localFile);
+        exitCode = rcmain(argc, argv, envp);
+        AZ::IO::FileIOBase::SetInstance(nullptr);
+    }
 
     AZ::AllocatorInstance<CryStringAllocator>::Destroy();
     AZ::AllocatorInstance<AZ::LegacyAllocator>::Destroy();
-   	AZ::AllocatorInstance<AZ::SystemAllocator>::Destroy();
+    AZ::AllocatorInstance<AZ::SystemAllocator>::Destroy();
 
+    //////////////////////////////////////////////////////////////////////////
+    AZ::AllocatorManager::Destroy();
     return exitCode;
 }
 
@@ -2512,7 +2457,7 @@ void ResourceCompiler::QueryVersionInfo()
         moduleNameW[charCount] = 0;
     }
     m_exePath = PathHelpers::GetAbsoluteAsciiPath(moduleNameW);
-#elif defined(AZ_PLATFORM_APPLE)
+#elif AZ_TRAIT_OS_PLATFORM_APPLE
     char moduleName[MAX_PATH];
     uint32_t bufferCharCount = sizeof(moduleName) / sizeof(moduleName[0]);
     if (_NSGetExecutablePath(moduleName, &bufferCharCount))
@@ -2578,7 +2523,7 @@ void ResourceCompiler::InitPaths()
         }
         m_tempPath = PathHelpers::AddSeparator(m_tempPath);
     }
-#elif defined(AZ_PLATFORM_APPLE) || defined(AZ_PLATFORM_LINUX)
+#elif AZ_TRAIT_OS_PLATFORM_APPLE || defined(AZ_PLATFORM_LINUX)
     //The path supplied by the first environment variable found in the
     //list TMPDIR, TMP, TEMP, TEMPDIR. If none of these are found, "/tmp".
     //Another possibility is using QTemporaryDir for this work.
@@ -2644,7 +2589,7 @@ void ResourceCompiler::InitPaths()
         SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_DEFAULT_DIRS);
         AddDllDirectory(tempDir.absolutePath().toStdWString().c_str());
     }
-#elif defined(AZ_PLATFORM_APPLE) || defined(AZ_PLATFORM_LINUX)
+#elif AZ_TRAIT_OS_PLATFORM_APPLE || defined(AZ_PLATFORM_LINUX)
     const char * pathEnv = getenv("PATH");
     string pathEnvNew = pathEnv;
     pathEnvNew.append(":");
@@ -2659,7 +2604,7 @@ bool ResourceCompiler::LoadIniFile()
 {
 #if defined(AZ_PLATFORM_WINDOWS)
     const string filename = PathHelpers::ToDosPath(m_exePath) + m_filenameRcIni;
-#elif defined(AZ_PLATFORM_APPLE_OSX)
+#elif defined(AZ_PLATFORM_MAC)
     // Handle the case where RC is inside an App Bundle (for the Editor or AssetProcessor)
     string filename = PathHelpers::ToUnixPath(m_exePath);
     string::size_type appBundleDirPosition = filename.rfind(".app");
@@ -2696,42 +2641,6 @@ bool ResourceCompiler::LoadIniFile()
 }
 
 
-void ResourceCompiler::InitSystem(SSystemInitParams& startupParams)
-{
-    m_pSystem = std::unique_ptr<ISystem>(startupParams.pSystem);
-
-
-    if (!startupParams.pSystem)
-    {
-#if !defined(AZ_MONOLITHIC_BUILD)
-#if defined(AZ_PLATFORM_APPLE_OSX)
-        m_systemDll = CryLoadLibrary("../libCrySystem.dylib");
-#elif defined(AZ_PLATFORM_LINUX)
-        m_systemDll = CryLoadLibrary("../libCrySystem.so");
-#else
-        m_systemDll = CryLoadLibrary("../crysystem.dll");
-#endif
-        if (!m_systemDll)
-        {
-            return;
-        }
-        PFNCREATESYSTEMINTERFACE CreateSystemInterface =
-            (PFNCREATESYSTEMINTERFACE)CryGetProcAddress(m_systemDll, "CreateSystemInterface");
-#endif // !AZ_MONOLITHIC_BUILD
-
-        // initialize the system
-        m_pSystem = std::unique_ptr<ISystem>(CreateSystemInterface(startupParams));
-
-        if (!m_pSystem)
-        {
-            return;
-        }
-    }
-
-    ModuleInitISystem(m_pSystem.get(), "ResourceCompiler"); // Needed by GetISystem();
-}
-
-
 //////////////////////////////////////////////////////////////////////////
 void ResourceCompiler::Init(Config& config)
 {
@@ -2742,6 +2651,8 @@ void ResourceCompiler::Init(Config& config)
 
     m_startTime = clock();
     m_bTimeLogging = false;
+
+    m_bUseFastestDecompressionCodec = config.GetAsBool("use_fastest", false,false);
 
     InitLogs(config);
     SetRCLog(this);
@@ -3050,7 +2961,7 @@ void ResourceCompiler::FilterExcludedFiles(std::vector<RcFile>& files)
 {
     const IConfig* const config = &m_multiConfig.getConfig();
 
-    const bool bVerbose = GetVerbosityLevel() > 0;
+    const bool bVerbose = GetVerbosityLevel() > 1;
 
     std::vector<string> excludes;
     {
@@ -3141,7 +3052,101 @@ void ResourceCompiler::FilterExcludedFiles(std::vector<RcFile>& files)
 }
 
 //////////////////////////////////////////////////////////////////////////
-void ResourceCompiler::CopyFiles(const std::vector<RcFile>& files, bool bNoOverwrite)
+void ResourceCompiler::GetFileListRecursively(const ZipDir::FileEntryTree* directory, const AZStd::string& directoryName, AZStd::vector<AZStd::string>& filenames) const
+{
+    //Get all the files in the current directory.
+    ZipDir::FileEntryTree::FileMap::const_iterator iterFile = directory->GetFileBegin();
+    while (iterFile != directory->GetFileEnd())
+    {
+        AZStd::string fullFileName = directoryName.c_str() + AZStd::string(iterFile->first);
+        filenames.push_back(fullFileName);
+        ++iterFile;
+    }
+
+    //Loop through all the directories and recurse all the way to the end.
+    ZipDir::FileEntryTree::SubdirMap::const_iterator iterDir = directory->GetDirBegin();
+    while (iterDir != directory->GetDirEnd())
+    {
+        const ZipDir::FileEntryTree* subDirectory = iterDir->second;
+        AZStd::string fullDirName;
+        if (directoryName.empty())
+        {
+            fullDirName = iterDir->first;
+        }
+        else
+        {
+            fullDirName = directoryName + AZStd::string(iterDir->first);
+        }
+        AzFramework::StringFunc::Path::AppendSeparator(fullDirName);
+        GetFileListRecursively(subDirectory, fullDirName, filenames);
+        ++iterDir;
+    }
+}
+
+bool ResourceCompiler::RecompressFiles(const string& sourceFileName, const string& destinationFileName)
+{
+    RCLog("Recompressing %s to %s", sourceFileName, destinationFileName);
+
+    AZ::IO::FileIOBase* pFileIO = AZ::IO::FileIOBase::GetInstance();
+    if (pFileIO->Exists(destinationFileName.c_str()))
+    {
+        AZ::IO::Result removeResult = pFileIO->Remove(destinationFileName.c_str());
+        if (removeResult.GetResultCode() != AZ::IO::ResultCode::Success)
+        {
+            RCLog("Recompression failed because Failed to remove %s", destinationFileName.c_str());
+            return false;
+        }
+    }
+
+    IPakSystem* pakSystem = GetPakSystem();
+    AZ_Assert(pakSystem != nullptr, "Invalid IPakSystem in RecompressFiles");
+
+    PakSystemArchive* pSourcePAK = pakSystem->OpenArchive(sourceFileName.c_str());
+    PakSystemArchive* pDestinationPAK = pakSystem->OpenArchive(destinationFileName.c_str());
+
+    AZStd::vector<AZStd::string> filesInPAK;
+    if (pSourcePAK && pDestinationPAK)
+    {
+        RCLog("Opened PAK...");
+
+        GetFileListRecursively(pSourcePAK->zip->GetRoot(), "", filesInPAK);
+        RCLog("Got %d files from PAK for recompression", filesInPAK.size());
+
+        bool success = true;
+        for (AZStd::string& fileInsidePak : filesInPAK)
+        {
+            ZipDir::FileEntry* fileEntry = pSourcePAK->zip->FindFile(fileInsidePak.c_str());
+            unsigned int fileSizeCompressed = fileEntry->desc.lSizeCompressed;
+            unsigned int fileSizeUncompressed = fileEntry->desc.lSizeUncompressed;
+
+            char* bufferCompressed = new char[fileSizeCompressed];
+            char* bufferUncompressed = new char[fileSizeUncompressed];
+            ZipDir::ErrorEnum readResult = pSourcePAK->zip->ReadFile(fileEntry, bufferCompressed, bufferUncompressed);
+            delete[] bufferCompressed; //Not needed anymore.
+            if (readResult != ZipDir::ZD_ERROR_SUCCESS)
+            {
+                success = false;
+                delete[] bufferUncompressed;
+                break;// Exit the for loop.
+            }
+            pDestinationPAK->zip->UpdateFile(fileInsidePak.c_str(), bufferUncompressed, fileSizeUncompressed, ZipFile::METHOD_DEFLATE, 1, fileEntry->GetModificationTime());
+            delete[] bufferUncompressed;
+        }
+
+        pakSystem->CloseArchive(pSourcePAK);
+        pakSystem->CloseArchive(pDestinationPAK);
+
+        RCLog("Recompression completed %s", success ? "successfully" : "unsuccessfully");
+
+        _flushall();
+        return success;
+    }
+    return false;
+}
+
+//////////////////////////////////////////////////////////////////////////
+
+void ResourceCompiler::CopyFiles(const std::vector<RcFile>& files, bool bNoOverwrite, bool recompress)
 {
     const IConfig* const config = &m_multiConfig.getConfig();
 
@@ -3179,7 +3184,7 @@ void ResourceCompiler::CopyFiles(const std::vector<RcFile>& files, bool bNoOverw
 
         ShowProgress(progressString.c_str(), i, numFiles);
 
-        const string srcFilename = PathHelpers::Join(files[i].m_sourceLeftPath, files[i].m_sourceInnerPathAndName);
+        string srcFilename = PathHelpers::Join(files[i].m_sourceLeftPath, files[i].m_sourceInnerPathAndName);
         string trgFilename = PathHelpers::Join(files[i].m_targetLeftPath, files[i].m_sourceInnerPathAndName);
         if (nc.HasRules())
         {
@@ -3199,7 +3204,7 @@ void ResourceCompiler::CopyFiles(const std::vector<RcFile>& files, bool bNoOverw
             }
         }
 
-        if (GetVerbosityLevel() >= 1)
+        if (GetVerbosityLevel() > 1)
         {
             RCLog("Copying %s to %s", srcFilename.c_str(), trgFilename.c_str());
         }
@@ -3262,8 +3267,33 @@ void ResourceCompiler::CopyFiles(const std::vector<RcFile>& files, bool bNoOverw
 #if defined(AZ_PLATFORM_WINDOWS)
             SetFileAttributes(trgFilename, FILE_ATTRIBUTE_ARCHIVE);
 #endif
-            AZ::IO::LocalFileIO localFileIO;
-            const bool bCopied = (localFileIO.Copy(srcFilename, trgFilename) != 0);
+            bool bCopied = false;
+            bool didAttemptRecompress = false;
+            if (recompress)
+            {
+                //recompressing only makes sense when source is a PAK file.
+                AZStd::string srcExtension;
+                if (AzFramework::StringFunc::Path::GetExtension(srcFilename.c_str(), srcExtension, false))
+                {
+                    //Case Insensitive compare
+                    if (AzFramework::StringFunc::Equal(srcExtension.c_str(), "pak"))
+                    {
+                        didAttemptRecompress = true;
+                        AZ::IO::LocalFileIO localFileIO;
+                        char szFullPathDir[AZ_MAX_PATH_LEN];
+                        if (localFileIO.ConvertToAbsolutePath(trgFilename, szFullPathDir, sizeof(szFullPathDir)))
+                        {
+                            bCopied = RecompressFiles(srcFilename, szFullPathDir);
+                        }
+                    }
+                }
+            }
+            
+            if (!didAttemptRecompress)
+            {
+                AZ::IO::LocalFileIO localFileIO;
+                bCopied = (localFileIO.Copy(srcFilename, trgFilename) != 0);
+            }
 
             if (bCopied)
             {
@@ -4093,7 +4123,12 @@ int ResourceCompiler::EvaluateJobXmlNode(CPropertyVars& properties, XmlNodeRef& 
             std::vector<RcFile> files;
             if (CollectFilesToCompile(fileSpec, files) && !files.empty())
             {
-                CompileFilesBySingleProcess(files);
+                bool result = CompileFilesBySingleProcess(files);
+                if (!result)
+                {
+                    RCLogError("Error: Failed to compile files");
+                    return eRcExitCode_Error;
+                }
             }
         }
         else

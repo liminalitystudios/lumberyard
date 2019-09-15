@@ -22,6 +22,8 @@ namespace PhysX
 {
     namespace Editor
     {
+        class DocumentationLinkWidget;
+
         class SettingsWidget
             : public QWidget
             , private AzToolsFramework::IPropertyEditorNotify
@@ -33,11 +35,11 @@ namespace PhysX
 
             explicit SettingsWidget(QWidget* parent = nullptr);
 
-            void SetValue(const PhysX::Settings& configuration, const Physics::WorldConfiguration& worldConfiguration,
+            void SetValue(const AZ::Data::Asset<Physics::MaterialLibraryAsset>& materialLibrary, const Physics::WorldConfiguration& worldConfiguration,
                 const PhysX::EditorConfiguration& editorConfiguration);
 
         signals:
-            void onValueChanged(const PhysX::Settings& configuration, const Physics::WorldConfiguration& worldConfiguration,
+            void onValueChanged(const AZ::Data::Asset<Physics::MaterialLibraryAsset>& materialLibrary, const Physics::WorldConfiguration& worldConfiguration,
                 const PhysX::EditorConfiguration& editorConfiguration);
 
         private:
@@ -50,7 +52,8 @@ namespace PhysX
             void SealUndoStack() override;
 
             AzToolsFramework::ReflectedPropertyEditor* m_propertyEditor;
-            PhysX::Settings m_settings;
+            DocumentationLinkWidget* m_documentationLinkWidget;
+            Physics::MaterialLibraryAssetReflectionWrapper m_defaultPhysicsMaterialLibrary;
             Physics::WorldConfiguration m_worldConfiguration;
             PhysX::EditorConfiguration m_editorConfiguration;
         };

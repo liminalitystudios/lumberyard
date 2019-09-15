@@ -39,7 +39,7 @@ struct MaterialTextureSemantic
 
     MaterialTextureSemantic& operator=(MaterialTextureSemantic& srcSemantic)
     {
-        SAFE_DELETE(suffix);
+        SAFE_DELETE_ARRAY(suffix);
 
         slot = srcSemantic.slot;
         priority = srcSemantic.priority;
@@ -61,7 +61,7 @@ struct MaterialTextureSemantic
 
     ~MaterialTextureSemantic()
     {
-        SAFE_DELETE(suffix);
+        SAFE_DELETE_ARRAY(suffix);
     };
 
     EEfResTextures  slot;
@@ -136,7 +136,7 @@ public:
         // this will be carried out only if it is the first item or after force init.
         if (!m_DefaultTextures.size() && !m_EngineTextures.size() && !m_MaterialTextures.size())
         {
-            AZ_Warning("[Shaders System]", false, "Textures Manager - allocating default resources");
+            AZ_TracePrintf("[Shaders System]", "Textures Manager - allocating default resources");
             // First load is for loading semantics but the texture slots will remain null as the default 
             // textures were not loaded yet.   This is required as the semantics suffix will be used during
             // the default texture load.

@@ -92,6 +92,8 @@ namespace Physics
         : public AZ::EBusTraits
     {
     public:
+        using MutexType = AZStd::mutex;
+
         /// Returns the Default world managed by a relevant system.
         virtual AZStd::shared_ptr<World> GetDefaultWorld() = 0;
     };
@@ -132,8 +134,8 @@ namespace Physics
         /// @param settings Custom world configuration.
         virtual AZStd::shared_ptr<World> CreateWorldCustom(AZ::Crc32 id, const WorldConfiguration& settings) = 0;
 
-        virtual AZStd::shared_ptr<RigidBodyStatic> CreateStaticRigidBody(const WorldBodyConfiguration& configuration) = 0;
-        virtual AZStd::shared_ptr<RigidBody> CreateRigidBody(const RigidBodyConfiguration& configuration) = 0;
+        virtual AZStd::unique_ptr<RigidBodyStatic> CreateStaticRigidBody(const WorldBodyConfiguration& configuration) = 0;
+        virtual AZStd::unique_ptr<RigidBody> CreateRigidBody(const RigidBodyConfiguration& configuration) = 0;
         virtual AZStd::shared_ptr<Shape> CreateShape(const ColliderConfiguration& colliderConfiguration, const ShapeConfiguration& configuration) = 0;
         virtual AZStd::shared_ptr<Material> CreateMaterial(const Physics::MaterialConfiguration& materialConfiguration) = 0;
         virtual AZStd::shared_ptr<Material> GetDefaultMaterial() = 0;
@@ -142,8 +144,8 @@ namespace Physics
         virtual AZStd::vector<AZ::TypeId> GetSupportedJointTypes() = 0;
         virtual AZStd::shared_ptr<JointLimitConfiguration> CreateJointLimitConfiguration(AZ::TypeId jointType) = 0;
         virtual AZStd::shared_ptr<Joint> CreateJoint(const AZStd::shared_ptr<JointLimitConfiguration>& configuration,
-            const AZStd::shared_ptr<Physics::WorldBody>& parentBody, const AZStd::shared_ptr<Physics::WorldBody>& childBody) = 0;
-        /// Generates joint limit visualization data in appropriate format to pass to EntityDebugDisplayRequests draw functions.
+            Physics::WorldBody* parentBody, Physics::WorldBody* childBody) = 0;
+        /// Generates joint limit visualization data in appropriate format to pass to DebugDisplayRequests draw functions.
         /// @param configuration The joint configuration to generate visualization data for.
         /// @param parentRotation The rotation of the joint's parent body (in the same frame as childRotation).
         /// @param childRotation The rotation of the joint's child body (in the same frame as parentRotation).
@@ -165,6 +167,15 @@ namespace Physics
             AZStd::vector<AZ::u32>& indexBufferOut,
             AZStd::vector<AZ::Vector3>& lineBufferOut,
             AZStd::vector<bool>& lineValidityBufferOut) = 0;
+
+        /// Loads the project wide material library asset
+        virtual bool LoadDefaultMaterialLibrary() = 0;
+
+        /// Updates the collider material selection from the physics asset or sets it to default if there's no asset provided.
+        /// @param shapeConfiguration The shape information
+        /// @param colliderConfiguration The collider information
+        virtual bool UpdateMaterialSelection(const Physics::ShapeConfiguration& shapeConfiguration,
+            Physics::ColliderConfiguration& colliderConfiguration) = 0;
 
         /// Computes parameters such as joint limit local rotations to give the desired initial joint limit orientation.
         /// @param jointLimitTypeId The type ID used to identify the particular kind of joint limit configuration to be created.

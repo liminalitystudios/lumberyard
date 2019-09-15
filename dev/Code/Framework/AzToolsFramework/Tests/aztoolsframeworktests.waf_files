@@ -4,7 +4,23 @@
             "Main.cpp"
         ],
         "AzToolsFramework": [
-          "UndoStack.cpp"
+            "AzToolsFrameworkTestHelpers.cpp",
+            "AzToolsFrameworkTestHelpers.h",
+            "ComponentModeTests.cpp",
+            "ComponentModeTestDoubles.cpp",
+            "ComponentModeTestDoubles.h",
+            "EditorTransformComponentSelectionTests.cpp",
+            "EditorVertexSelectionTests.cpp",
+            "LogLines.cpp",
+            "ManipulatorBoundsTests.cpp",
+            "ManipulatorCoreTests.cpp",
+            "ManipulatorViewTests.cpp",
+            "Slice.cpp",
+            "UndoStack.cpp",
+            "EntityIdQLabelTests.cpp"
+        ],
+        "Entity": [
+          "Entity/EditorEntityContextComponentTests.cpp"
         ],
         "ToolsComponents": [
             "ToolsComponents/EditorLayerComponentTests.cpp"

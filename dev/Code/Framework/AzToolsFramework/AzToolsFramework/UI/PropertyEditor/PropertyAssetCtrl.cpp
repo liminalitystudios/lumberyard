@@ -18,15 +18,20 @@
 #include <QtWidgets/QLineEdit>
 #include <QtCore/QEvent>
 #include <QtCore/QTimer>
+AZ_PUSH_DISABLE_WARNING(4244 4251, "-Wunknown-warning-option") // 4244: conversion from 'int' to 'float', possible loss of data
+                                                               // 4251: 'QInputEvent::modState': class 'QFlags<Qt::KeyboardModifier>' needs to have dll-interface to be used by clients of class 'QInputEvent'
 #include <QtGui/QMouseEvent>
 #include <QtWidgets/QHBoxLayout>
+AZ_POP_DISABLE_WARNING
 #include <QtWidgets/QPushButton>
 #include <QtWidgets/QLabel>
 #include <QtWidgets/QMenu>
 #include <QClipboard>
 #include <QtGui/QPixmapCache>
 #include <QtCore/QMimeData>
+AZ_PUSH_DISABLE_WARNING(4251, "-Wunknown-warning-option") // 4251: 'QInputEvent::modState': class 'QFlags<Qt::KeyboardModifier>' needs to have dll-interface to be used by clients of class 'QInputEvent'
 #include <QtWidgets/QFileDialog>
+AZ_POP_DISABLE_WARNING
 #include <QtWidgets/QMessageBox>
 
 #include <AzCore/Asset/AssetManager.h>
@@ -428,7 +433,7 @@ namespace AzToolsFramework
             tabsResetFunction();
 
             #pragma warning(push)
-            #pragma warning(disable: 4573)	// the usage of 'X' requires the compiler to capture 'this' but the current default capture mode 
+            #pragma warning(disable: 4573)  // the usage of 'X' requires the compiler to capture 'this' but the current default capture mode 
 
             // Connect the above function to when the user clicks the reset tabs button
             QObject::connect(logPanel, &AzToolsFramework::LogPanel::BaseLogPanel::TabsReset, logPanel, tabsResetFunction);
@@ -564,15 +569,18 @@ namespace AzToolsFramework
                 const AZ::SerializeContext::ClassData* classData = serializeContext->FindClassData(GetCurrentAssetType());
                 if (classData && classData->m_editData)
                 {
-                    // if there is no file selected then open the asset editor and let them create one
-                    AZ::Data::Asset<AZ::Data::AssetData> asset = GetCurrentAssetID().IsValid()? AZ::Data::AssetManager::Instance().GetAsset(GetCurrentAssetID(), GetCurrentAssetType(), true) : AZ::Data::Asset<AZ::Data::AssetData>();
-                    QObject* rootOfAll = this;
-                    while (QObject* nextParent = rootOfAll->parent())
+                    if (!GetCurrentAssetID().IsValid())
                     {
-                        rootOfAll = nextParent;
+                        // No Asset Id selected - Open editor and create new asset for them
+                        AssetEditor::AssetEditorRequestsBus::Broadcast(&AssetEditor::AssetEditorRequests::CreateNewAsset, GetCurrentAssetType());
+                    }
+                    else
+                    {
+                        // Open the asset with the preferred asset editor
+                        bool handled = false;
+                        AssetBrowser::AssetBrowserInteractionNotificationBus::Broadcast(&AssetBrowser::AssetBrowserInteractionNotifications::OpenAssetInAssociatedEditor, GetCurrentAssetID(), handled);
                     }
 
-                    AssetEditor::AssetEditorRequestsBus::Broadcast(&AssetEditor::AssetEditorRequests::OpenAssetEditor, asset);
                     return;
                 }
             }
@@ -814,6 +822,7 @@ namespace AzToolsFramework
             {
                 (void)newAssetID;
                 EBUS_EVENT(PropertyEditorGUIMessages::Bus, RequestWrite, newCtrl);
+                AzToolsFramework::PropertyEditorGUIMessages::Bus::Broadcast(&PropertyEditorGUIMessages::Bus::Handler::OnEditingFinished, newCtrl);
             });
         return newCtrl;
     }
@@ -900,6 +909,7 @@ namespace AzToolsFramework
             {
                 (void)newAssetID;
                 EBUS_EVENT(PropertyEditorGUIMessages::Bus, RequestWrite, newCtrl);
+                AzToolsFramework::PropertyEditorGUIMessages::Bus::Broadcast(&PropertyEditorGUIMessages::Bus::Handler::OnEditingFinished, newCtrl);
             });
         return newCtrl;
     }

@@ -33,13 +33,14 @@
 
 #include <AzCore/std/parallel/semaphore.h>
 #include <AzCore/std/smart_ptr/shared_ptr.h>
-
+#include <AzCore/std/string/string_view.h>
+#include <AzCore/Component/ComponentApplicationBus.h>
 #if defined(AZ_PLATFORM_WINDOWS)
 #include <windows.h>
 #include <shellapi.h> // ShellExecuteW()
 #endif
 
-#if defined(AZ_PLATFORM_APPLE)
+#if AZ_TRAIT_OS_PLATFORM_APPLE
 #include <CoreFoundation/CoreFoundation.h>
 #endif
 
@@ -52,7 +53,7 @@ namespace
 #if !defined(AZ_PLATFORM_WINDOWS)
     void MessageBoxW(int, const wchar_t* header, const wchar_t* message, unsigned long)
     {
-#if defined(AZ_PLATFORM_APPLE)
+#if AZ_TRAIT_OS_PLATFORM_APPLE
         CFStringEncoding encoding = (CFByteOrderLittleEndian == CFByteOrderGetCurrent()) ?
             kCFStringEncodingUTF32LE : kCFStringEncodingUTF32BE;
         CFStringRef header_ref = CFStringCreateWithBytes(nullptr, reinterpret_cast<const UInt8*>(header), wcslen(header) * sizeof(wchar_t), encoding, false);
@@ -160,7 +161,7 @@ static bool DirectoryExists(const wchar_t* szPathPart0, const wchar_t* szPathPar
 #if defined(AZ_PLATFORM_WINDOWS)
     const DWORD dwAttr = GetFileAttributesW(dir.c_str());
     return (dwAttr != INVALID_FILE_ATTRIBUTES) && ((dwAttr & FILE_ATTRIBUTE_DIRECTORY) != 0);
-#elif defined(AZ_PLATFORM_APPLE)
+#elif AZ_TRAIT_OS_PLATFORM_APPLE
     char dirUTF8[MAX_PATH * 8];
     ConvertUtf16ToUtf8(dir.c_str(), SettingsManagerHelpers::CCharBuffer(dirUTF8, MAX_PATH * 8));
     struct stat sb;
@@ -337,9 +338,12 @@ namespace
 
 bool GetRCFolder(wchar_t* pathBuffer, const wchar_t* binFolderFromRegistry, wchar_t* rcFolderBuffer, size_t rcFolderBufferSize)
 {
+    AZStd::string_view binFolderName;
+    AZ::ComponentApplicationBus::BroadcastResult(binFolderName, &AZ::ComponentApplicationRequests::GetBinFolder);
+
     // Convert the BINFOLDER_NAME from the compile settings into a wide character
     wchar_t szBinFolderFromSettings[0x40];
-    swprintf(szBinFolderFromSettings, 0x40, L"%hs/rc", BINFOLDER_NAME);
+    swprintf(szBinFolderFromSettings, 0x40, L"%hs/rc", binFolderName.data());
 
     wchar_t szBinFolderFromRegistry[0x40];
     swprintf(szBinFolderFromRegistry, 0x40, L"%ls/rc", binFolderFromRegistry);

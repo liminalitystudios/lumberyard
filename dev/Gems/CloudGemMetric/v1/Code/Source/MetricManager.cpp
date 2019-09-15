@@ -21,7 +21,7 @@
 #include <AzCore/std/smart_ptr/make_shared.h>
 #include <AzCore/std/parallel/mutex.h>
 #include <AzCore/std/parallel/lock.h>
-#include <AzCore/std/parallel/conditional_variable.h>
+#include <AzCore/std/parallel/condition_variable.h>
 #include <AzCore/Math/Uuid.h>
 #include <AzCore/Jobs/JobContext.h>
 #include <AzCore/Jobs/JobFunction.h>
@@ -32,6 +32,7 @@
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
 
+#include <CloudCanvasCommon/CloudCanvasCommonBus.h>
 
 namespace CloudGemMetric
 {   
@@ -213,10 +214,13 @@ namespace CloudGemMetric
         auto curMetrics = AZStd::make_shared<MetricsQueue>();
         {
             AZ::u64 fileSize = 0;
-            AZ::IO::Result result = fileIO->Size(GetMetricsFilePath(), fileSize);
-            if (result && fileSize)
+            if (fileIO->Exists(GetMetricsFilePath()))
             {
-                curMetrics->ReadFromJson(GetMetricsFilePath());
+                AZ::IO::Result result = fileIO->Size(GetMetricsFilePath(), fileSize);
+                if (result && fileSize)
+                {
+                    curMetrics->ReadFromJson(GetMetricsFilePath());
+                }
             }
         }
 
@@ -292,7 +296,7 @@ namespace CloudGemMetric
     AZ::Job* MetricManager::CreateFlushMetricsToFileJob(AZStd::shared_ptr<MetricsQueue> metricsToFlush, const MetricsSettings::Settings& settings, SendMetricsMode sendMetricsMode)
     {
         AZ::JobContext* jobContext{ nullptr };
-        EBUS_EVENT_RESULT(jobContext, CloudGemFramework::CloudGemFrameworkRequestBus, GetDefaultJobContext);
+        EBUS_EVENT_RESULT(jobContext, CloudCanvasCommon::CloudCanvasCommonRequestBus, GetDefaultJobContext);
 
         AZ::Job* job{ nullptr };
 

@@ -9,7 +9,6 @@
 * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 *
 */
-#ifndef AZ_UNITY_BUILD
 
 #if !defined(AZCORE_EXCLUDE_LUA)
 
@@ -73,11 +72,7 @@ ScriptContextDebug::ScriptContextDebug(ScriptContext& scriptContext, bool isEnab
     , m_currentStackLevel(-1)
     , m_stepStackLevel(-1)
     , m_isRecordCallstack(isEnableStackRecord)
-#if defined(AZ_PLATFORM_WINDOWS)
-    , m_isRecordCodeCallstack(true)   // PC is fast enough to do it all the time.
-#else
-    , m_isRecordCodeCallstack(false)  // On consoles we need to traverse map files (for full stack decode)
-#endif
+    , m_isRecordCodeCallstack(AZ_TRAIT_SCRIPT_RECORD_CALLSTACK_DEFAULT)
     , m_context(scriptContext)
 {
     ConnectHook();
@@ -397,28 +392,31 @@ void ScriptContextDebug::EnumRegisteredEBuses(EnumEBus enumEBus, EnumEBusSender 
         {
             AZ::BehaviorEBusHandler* handler = nullptr;
             ebus->m_createHandler->InvokeResult(handler);
-            const auto& notifications = handler->GetEvents();
-            for (const auto& notification : notifications)
+            if (handler)
             {
-                AZStd::string scriptArgs;
-                const size_t paramCount = notification.m_parameters.size();
-                for (size_t i = 0; i < notification.m_parameters.size(); ++i)
+                const auto& notifications = handler->GetEvents();
+                for (const auto& notification : notifications)
                 {
-                    AZStd::string argName = notification.m_parameters[i].m_name;
-                    StripQualifiers(argName);
-                    scriptArgs += argName;
-                    if (i != paramCount - 1)
+                    AZStd::string scriptArgs;
+                    const size_t paramCount = notification.m_parameters.size();
+                    for (size_t i = 0; i < notification.m_parameters.size(); ++i)
                     {
-                        scriptArgs += ", ";
+                        AZStd::string argName = notification.m_parameters[i].m_name;
+                        StripQualifiers(argName);
+                        scriptArgs += argName;
+                        if (i != paramCount - 1)
+                        {
+                            scriptArgs += ", ";
+                        }
                     }
+
+                    AZStd::string funcName = notification.m_name;
+                    StripQualifiers(funcName);
+
+                    enumEBusSender(ebus->m_name, funcName, scriptArgs, "Notification", userData);
                 }
-
-                AZStd::string funcName = notification.m_name;
-                StripQualifiers(funcName);
-
-                enumEBusSender(ebus->m_name, funcName, scriptArgs, "Notification", userData);
+                ebus->m_destroyHandler->Invoke(handler);
             }
-            ebus->m_destroyHandler->Invoke(handler);
         }
     }
 }
@@ -1542,5 +1540,3 @@ ScriptContextDebug::SetValue(const DebugValue& sourceValue)
 }
 
 #endif // #if !defined(AZCORE_EXCLUDE_LUA)
-
-#endif // #ifndef AZ_UNITY_BUILD

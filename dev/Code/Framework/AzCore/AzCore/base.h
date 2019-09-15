@@ -12,18 +12,7 @@
 #pragma once
 
 #include <AzCore/PlatformDef.h> ///< Platform/compiler specific defines
-
-#if defined(AZ_RESTRICTED_PLATFORM)
-#undef AZ_RESTRICTED_SECTION
-#define BASE_H_SECTION_1 1
-#define BASE_H_SECTION_2 2
-#endif
-
-#if defined(AZ_DEBUG_BUILD) && defined(AZ_PLATFORM_WINDOWS) && !defined(AZ_PLATFORM_WINDOWS_X64)
-// for x86 we need to stop FPO (Frame Pointer Omit) so we can record good callstack fast!
-// Note: StackWalk64 is slow and used only for exceptions - where no other option is possible.
-#pragma optimize("y",off)
-#endif // defined(AZ_DEBUG_BUILD) && defined(AZ_PLATFORM_WINDOWS) && !defined(AZ_PLATFORM_WINDOWS_X64)
+#include <AzCore/base_Platform.h>
 
 #ifndef AZ_ARRAY_SIZE
 /// Return an array size for static arrays.
@@ -45,66 +34,6 @@
 
 namespace AZ
 {
-    /**
-     * Enum of supported platforms. Just for user convenience.
-     */
-    enum PlatformID
-    {
-        PLATFORM_WINDOWS_32 = 0,
-        PLATFORM_WINDOWS_64,
-#if defined(AZ_EXPAND_FOR_RESTRICTED_PLATFORM) || defined(AZ_TOOLS_EXPAND_FOR_RESTRICTED_PLATFORMS)
-#define AZ_RESTRICTED_PLATFORM_EXPANSION(CodeName, CODENAME, codename, PrivateName, PRIVATENAME, privatename, PublicName, PUBLICNAME, publicname, PublicAuxName1, PublicAuxName2, PublicAuxName3)\
-        PLATFORM_##PUBLICNAME,
-#if defined(AZ_EXPAND_FOR_RESTRICTED_PLATFORM)
-        AZ_EXPAND_FOR_RESTRICTED_PLATFORM
-#else
-        AZ_TOOLS_EXPAND_FOR_RESTRICTED_PLATFORMS
-#endif
-#undef AZ_RESTRICTED_PLATFORM_EXPANSION
-#endif
-        PLATFORM_LINUX_64,
-        PLATFORM_ANDROID,       // ARMv7 / 32-bit
-        PLATFORM_APPLE_IOS,
-        PLATFORM_APPLE_OSX,
-        PLATFORM_APPLE_TV,
-        PLATFORM_ANDROID_64,    // ARMv8 / 64-bit
-        // Add new platforms here
-
-        PLATFORM_MAX  ///< Must be last
-    };
-
-#if defined(AZ_PLATFORM_WINDOWS_X64)
-    static const PlatformID g_currentPlatform = PLATFORM_WINDOWS_64;
-#define AZ_RESTRICTED_SECTION_IMPLEMENTED
-#elif defined(AZ_PLATFORM_WINDOWS)
-    static const PlatformID g_currentPlatform = PLATFORM_WINDOWS_32;
-#define AZ_RESTRICTED_SECTION_IMPLEMENTED
-#elif defined(AZ_RESTRICTED_PLATFORM)
-#define AZ_RESTRICTED_SECTION BASE_H_SECTION_1
-    #if defined(AZ_PLATFORM_XENIA)
-        #include "Xenia/base_h_xenia.inl"
-    #elif defined(AZ_PLATFORM_PROVO)
-        #include "Provo/base_h_provo.inl"
-    #endif
-#endif
-#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
-#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
-#elif defined(AZ_PLATFORM_LINUX_X64)
-    static const PlatformID g_currentPlatform = PLATFORM_LINUX_64;
-#elif defined(AZ_PLATFORM_ANDROID_X32)
-    static const PlatformID g_currentPlatform = PLATFORM_ANDROID;
-#elif defined(AZ_PLATFORM_ANDROID_X64)
-    static const PlatformID g_currentPlatform = PLATFORM_ANDROID_64;
-#elif defined(AZ_PLATFORM_APPLE_IOS)
-    static const PlatformID g_currentPlatform = PLATFORM_APPLE_IOS;
-#elif defined(AZ_PLATFORM_APPLE_TV)
-    static const PlatformID g_currentPlatform = PLATFORM_APPLE_TV;
-#elif defined(AZ_PLATFORM_APPLE_OSX)
-    static const PlatformID g_currentPlatform = PLATFORM_APPLE_OSX;
-#else
-#   error Platform Not supported!
-#endif
-
     static inline bool IsBigEndian(PlatformID /*id*/)
     {
         return false;
@@ -112,6 +41,7 @@ namespace AZ
 
     const char* GetPlatformName(PlatformID platform);
 } // namespace AZ
+
 
 #if defined(AZ_COMPILER_GCC) && ((AZ_COMPILER_GCC > 3) || ((AZ_COMPILER_GCC == 3) && (__GNUC_MINOR__ >= 4)))
 #define AZSTD_STATIC_ASSERT_BOOL_CAST(_x) ((_x) == 0 ? false : true)
@@ -157,17 +87,6 @@ namespace AZ
         AZ_JOIN (azstd_static_assert_typedef_, __LINE__)
 #endif //
 
-#if defined(AZ_COMPILER_MSVC)
-#    define AZ_STRINGIZE(text) AZ_STRINGIZE_A((text))
-#    define AZ_STRINGIZE_A(arg) AZ_STRINGIZE_I arg
-#elif defined(AZ_COMPILER_MWERKS)
-#    define AZ_STRINGIZE(text) AZ_STRINGIZE_OO((text))
-#    define AZ_STRINGIZE_OO(par) AZ_STRINGIZE_I ## par
-# else
-#    define AZ_STRINGIZE(text) AZ_STRINGIZE_I(text)
-# endif
-
-# define AZ_STRINGIZE_I(text) #text
 //////////////////////////////////////////////////////////////////////////
 
 /**
@@ -201,7 +120,10 @@ namespace AZ
 #   define azwcsicmp        _wcsicmp
 #   define azwcsnicmp       _wcsnicmp
 #   define azmemicmp        _memicmp
+
+// note: for cross-platform compatibility, do not use the return value of azfopen. On Windows, it's an errno_t and 0 indicates success. On other platforms, the return value is a FILE*, and a 0 value indicates failure.
 #   define azfopen          fopen_s
+
 #   define azsprintf(_buffer, ...)      sprintf_s(_buffer, AZ_ARRAY_SIZE(_buffer), __VA_ARGS__)
 #   define azstrlwr         _strlwr_s
 #   define azvsprintf       vsprintf_s
@@ -227,7 +149,11 @@ namespace AZ
 #   define azstrncpy(_dest, _destSize, _src, _count) strncpy(_dest, _src, _count)
 #   define azstricmp        strcasecmp
 #   define azstrnicmp       strncasecmp
-#   define azisfinite       isfinite
+#   if defined(NDK_REV_MAJOR) && NDK_REV_MAJOR < 16
+#       define azisfinite   __isfinitef
+#   else
+#       define azisfinite   isfinite
+#   endif
 #   define azltoa(_value, _buffer, _size, _radix) ltoa(_value, _buffer, _radix)
 #   define azitoa(_value, _buffer, _size, _radix) itoa(_value, _buffer, _radix)
 #   define azui64toa(_value, _buffer, _size, _radix) _ui64toa(_value, _buffer, _radix)
@@ -235,7 +161,10 @@ namespace AZ
 #   define azwcsicmp        wcsicmp
 #   define azwcsnicmp       wcsnicmp
 #   define azmemicmp        memicmp
+
+// note: for cross-platform compatibility, do not use the return value of azfopen. On Windows, it's an errno_t and 0 indicates success. On other platforms, the return value is a FILE*, and a 0 value indicates failure.
 #   define azfopen(_fp, _filename, _attrib) *(_fp) = fopen(_filename, _attrib)
+
 #   define azsprintf       sprintf
 #   define azstrlwr(_buffer, _size)             strlwr(_buffer)
 #   define azvsprintf       vsprintf
@@ -245,17 +174,13 @@ namespace AZ
 #   define azlocaltime      localtime_r
 #endif
 
-#if defined(AZ_PLATFORM_APPLE) || defined(AZ_PLATFORM_ANDROID) || defined(AZ_PLATFORM_LINUX)
+#if AZ_TRAIT_USE_POSIX_STRERROR_R
 #   define azstrerror_s(_dst, _num, _err)   strerror_r(_err, _dst, _num)
 #else
 #   define azstrerror_s strerror_s
 #endif
 
-#ifdef AZ_OS64
 #define AZ_INVALID_POINTER  reinterpret_cast<void*>(0x0badf00dul)
-#else
-#define AZ_INVALID_POINTER  reinterpret_cast<void*>(0x0badf00d)
-#endif
 
 // Variadic MACROS util functions
 
@@ -314,13 +239,6 @@ namespace AZ
 // Based on boost macro expansion fix...
 #define AZ_PREVENT_MACRO_SUBSTITUTION
 
-// Windows X64 bad crt code
-#ifdef AZ_PLATFORM_WINDOWS_X64
-#   pragma warning( push )
-#   pragma warning( disable : 4985 ) // warning C4985: 'ceil': attributes not present on previous declaration.
-#   include <math.h>
-#   pragma warning( pop )
-#endif
 
 //////////////////////////////////////////////////////////////////////////
 
@@ -335,13 +253,10 @@ using std::ptrdiff_t;
  * they have native type equivalent, which should take precedence.
  */
 
-#if AZ_TRAIT_COMPILER_INCLUDE_CSTDINT
 #include <cstdint>
-#endif
 
 namespace AZ
 {
-#if AZ_TRAIT_COMPILER_INCLUDE_CSTDINT
     typedef int8_t    s8;
     typedef uint8_t   u8;
     typedef int16_t   s16;
@@ -356,19 +271,6 @@ namespace AZ
     typedef uint64_t  u64;
 #   endif //
 
-#else
-    typedef char                    s8;
-    typedef unsigned char           u8;
-    typedef short                   s16;
-    typedef unsigned short          u16;
-    typedef int                     s32;
-    typedef unsigned int            u32;
-
-    #if defined(AZ_COMPILER_MSVC)
-    typedef __int64                 s64;
-    typedef unsigned __int64        u64;
-    #endif
-#endif
 
     typedef struct
     {
@@ -409,26 +311,6 @@ namespace AZ
     }
 }
 
-// Platform includes
-#ifdef AZ_PLATFORM_WINDOWS
-#define AZ_RESTRICTED_SECTION_IMPLEMENTED
-#elif defined(AZ_RESTRICTED_PLATFORM)
-#define AZ_RESTRICTED_SECTION BASE_H_SECTION_2
-    #if defined(AZ_PLATFORM_XENIA)
-        #include "Xenia/base_h_xenia.inl"
-    #elif defined(AZ_PLATFORM_PROVO)
-        #include "Provo/base_h_provo.inl"
-    #endif
-#endif
-#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
-#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
-#elif defined(AZ_PLATFORM_LINUX)
-
-#elif defined(AZ_PLATFORM_ANDROID)
-#elif defined(AZ_PLATFORM_APPLE)
-#else
-    #error Invalid platform
-#endif
 
 #include <AzCore/Debug/Trace.h> // Global access to AZ_Assert,AZ_Error,AZ_Warning, etc.
 
@@ -446,9 +328,23 @@ namespace AZ
 #define azalias_cast AZ::AliasCast
 
 // Macros to disable the auto-generated copy/move constructors and assignment operators for a class
-#define AZ_DISABLE_COPY(_Class) _Class(const _Class&) = delete; _Class& operator=(const _Class&) = delete;
-#define AZ_DISABLE_MOVE(_Class) _Class(const _Class&&) = delete; _Class& operator=(const _Class&&) = delete;
-#define AZ_DISABLE_COPY_MOVE(_Class) AZ_DISABLE_COPY(_Class) AZ_DISABLE_MOVE(_Class)
+// Note: AZ_DISABLE_COPY must also set the move constructor and move assignment operator
+// to `=default`, otherwise they will be implicitly disabled by the compiler.
+// If you wish to implement your own move constructor and assignment operator, you must
+// explicitly delete the copy and assignment operator without the use of this macro.
+#define AZ_DISABLE_COPY(_Class) \
+    _Class(const _Class&) = delete; _Class& operator=(const _Class&) = delete; \
+    _Class(_Class&&) = default; _Class& operator=(_Class&&) = default;
+// Note: AZ_DISABLE_MOVE is DEPRECATED and will be removed.
+// The preferred approach to use if a type is to be copy only is to simply provide copy and
+// assignment operators (either `=default` or user provided), moves will be implicitly disabled.
+#define AZ_DISABLE_MOVE(_Class) \
+    _Class(_Class&&) = delete; _Class& operator=(_Class&&) = delete;
+// Note: Setting the move constructor and move assignment operator to `=delete` here is not
+// strictly necessary (as they will be implicitly disabled when the copy/assignment operators
+// are declared) but is done to be explicit that this is the intention.
+#define AZ_DISABLE_COPY_MOVE(_Class) \
+    _Class(const _Class&) = delete; _Class& operator=(const _Class&) = delete; AZ_DISABLE_MOVE(_Class)
 
 // Macros to default the auto-generated copy/move constructors and assignment operators for a class
 #define AZ_DEFAULT_COPY(_Class) _Class(const _Class&) = default; _Class& operator=(const _Class&) = default;

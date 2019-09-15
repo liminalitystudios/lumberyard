@@ -152,7 +152,7 @@ namespace PhysX
         } m_physxSDKGlobals;
 
         physx::PxPvdTransport* m_pvdTransport = nullptr;
-        AzPhysXCpuDispatcher* m_cpuDispatcher = nullptr;
+        physx::PxCpuDispatcher* m_cpuDispatcher = nullptr;
 
         // SystemRequestsBus
         physx::PxScene* CreateScene(physx::PxSceneDesc& sceneDesc) override;
@@ -161,6 +161,9 @@ namespace PhysX
         physx::PxTriangleMesh* CreateTriangleMeshFromCooked(const void* cookedMeshData, AZ::u32 bufferSize) override;
         bool ConnectToPvd() override;
         void DisconnectFromPvd() override;
+        // Expose shared allocator and error callbacks for other Gems that need to initialize their own instances of the PhysX SDK.
+        physx::PxAllocatorCallback* GetPhysXAllocatorCallback() override;
+        physx::PxErrorCallback* GetPhysXErrorCallback() override;
 
         bool CookConvexMeshToFile(const AZStd::string& filePath, const AZ::Vector3* vertices, AZ::u32 vertexCount) override;
         bool CookTriangleMeshToFile(const AZStd::string& filePath, const AZ::Vector3* vertices, AZ::u32 vertexCount,
@@ -204,8 +207,8 @@ namespace PhysX
         // Physics::SystemRequestBus::Handler
         AZStd::shared_ptr<Physics::World> CreateWorld(AZ::Crc32 id) override;
         AZStd::shared_ptr<Physics::World> CreateWorldCustom(AZ::Crc32 id, const Physics::WorldConfiguration& settings) override;
-        AZStd::shared_ptr<Physics::RigidBodyStatic> CreateStaticRigidBody(const Physics::WorldBodyConfiguration& configuration) override;
-        AZStd::shared_ptr<Physics::RigidBody> CreateRigidBody(const Physics::RigidBodyConfiguration& configuration) override;
+        AZStd::unique_ptr<Physics::RigidBodyStatic> CreateStaticRigidBody(const Physics::WorldBodyConfiguration& configuration) override;
+        AZStd::unique_ptr<Physics::RigidBody> CreateRigidBody(const Physics::RigidBodyConfiguration& configuration) override;
         AZStd::shared_ptr<Physics::Shape> CreateShape(const Physics::ColliderConfiguration& colliderConfiguration, const Physics::ShapeConfiguration& configuration) override;
         AZStd::shared_ptr<Physics::Material> CreateMaterial(const Physics::MaterialConfiguration& materialConfiguration) override;
         AZStd::shared_ptr<Physics::Material> GetDefaultMaterial() override;
@@ -214,7 +217,7 @@ namespace PhysX
         AZStd::vector<AZ::TypeId> GetSupportedJointTypes() override;
         AZStd::shared_ptr<Physics::JointLimitConfiguration> CreateJointLimitConfiguration(AZ::TypeId jointType) override;
         AZStd::shared_ptr<Physics::Joint> CreateJoint(const AZStd::shared_ptr<Physics::JointLimitConfiguration>& configuration,
-            const AZStd::shared_ptr<Physics::WorldBody>& parentBody, const AZStd::shared_ptr<Physics::WorldBody>& childBody) override;
+            Physics::WorldBody* parentBody, Physics::WorldBody* childBody) override;
         void GenerateJointLimitVisualizationData(
             const Physics::JointLimitConfiguration& configuration,
             const AZ::Quaternion& parentRotation,
@@ -244,7 +247,15 @@ namespace PhysX
 
         static bool VersionConverter(AZ::SerializeContext& context, AZ::SerializeContext::DataElementNode& classElement);
 
+        bool LoadDefaultMaterialLibrary() override;
+
+        bool UpdateMaterialSelection(const Physics::ShapeConfiguration& shapeConfiguration,
+            Physics::ColliderConfiguration& colliderConfiguration) override;
+
     private:
+        bool UpdateMaterialSelectionFromPhysicsAsset(
+            const Physics::PhysicsAssetShapeConfiguration& assetConfiguration,
+            Physics::ColliderConfiguration& colliderConfiguration);
 
         bool m_enabled; ///< If false, this component will not activate itself in the Activate() function.
         AZStd::string m_configurationPath;

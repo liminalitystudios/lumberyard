@@ -104,6 +104,8 @@
             "ILipSyncProvider.h",
             "ILMSerializationManager.h",
             "ILocalizationManager.h",
+            "LocalizationManagerBus.h",
+            "LocalizationManagerBus.inl",
             "ILog.h",
             "ILZ4Decompressor.h",
             "IMaterial.h",
@@ -182,10 +184,10 @@
             "IXml.h",
             "IZLibCompressor.h",
             "IZlibDecompressor.h",
+            "IZStdDecompressor.h",
             "INetworkingState.h",
             "IProximityTriggerSystem.h",
             "MicrophoneBus.h",
-            "NativeUIRequests.h",
             "ParticleParams.h",
             "ParticleParams_info.h",
             "physinterface.h",
@@ -199,6 +201,7 @@
             "StereoRendererBus.h",
             "CharacterBoundsBus.h",
             "ColorGradingBus.h",
+            "HeightmapUpdateNotificationBus.h",
             "RTTBus.h"	    
         ],
         "Interfaces_h/AI Interfaces":
@@ -307,7 +310,6 @@
             "BitFiddling.h",
             "BitMask.h",
             "BitmapDilation.h",
-            "BoostHelpers.h",
             "branchmask.h",
             "CGFContent.h",
             "CGFContent_info.h",
@@ -399,6 +401,7 @@
             "SerializeBuffer.h",
             "SerializeFwd.h",
             "SimpleSerialize.h",
+            "SmartPointersHelpers.h",
             "smartptr.h",
             "StackContainer.h",
             "StaticInstanceList.h",
@@ -447,7 +450,8 @@
             "ManualResetEvent.h",
             "UniqueManualEvent.h",
             "CryCommonReflection.h",
-            "OceanConstants.h"
+            "OceanConstants.h",
+            "Codec.h"
         ],
         "Common_h/RenderElements":
         [
@@ -516,7 +520,7 @@
             "Console_std.h",
             "CryAssert_Android.h",
             "CryAssert_impl.h",
-            "CryAssert_IOS.h",
+            "CryAssert_iOS.h",
             "CryAssert_Linux.h",
             "CryAssert_Mac.h",
             "CryDLMalloc.h",
@@ -679,6 +683,7 @@
             "LyShine/UiComponentTypes.h",
             "LyShine/UiBase.h",
             "LyShine/UiEntityContext.h",
+            "LyShine/UiLayoutCellBase.h",
             "LyShine/UiSerializeHelpers.h"
         ],
         "LyShine/Animation":
@@ -796,6 +801,12 @@
         "Terrain/Bus":
         [
             "Terrain/Bus/LegacyTerrainBus.h"
+        ],
+
+        "Vegetation":
+        [
+            "Vegetation/StaticVegetationBus.h",
+            "Vegetation/MapHandle.h"
         ],
 
         "CryAction": [

@@ -16,21 +16,25 @@
 #include <AzToolsFramework/UI/PropertyEditor/InstanceDataHierarchy.h>
 #include <QBoxLayout>
 #include <Editor/SettingsWidget.h>
+#include <Editor/DocumentationLinkWidget.h>
 
 namespace PhysX
 {
     namespace Editor
     {
+        static const char* const s_settingsDocumentationLink = "Learn more about <a href=%0>configuring PhysX</a>";
+        static const char* const s_settingsDocumentationAddress = "https://docs-aws.amazon.com/console/lumberyard/physx/configuration/global";
+
         SettingsWidget::SettingsWidget(QWidget* parent)
             : QWidget(parent)
         {
             CreatePropertyEditor(this);
         }
 
-        void SettingsWidget::SetValue(const PhysX::Settings& settings, const Physics::WorldConfiguration& worldConfiguration,
+        void SettingsWidget::SetValue(const AZ::Data::Asset<Physics::MaterialLibraryAsset>& materialLibrary, const Physics::WorldConfiguration& worldConfiguration,
             const PhysX::EditorConfiguration& editorConfiguration)
         {
-            m_settings = settings;
+            m_defaultPhysicsMaterialLibrary.m_asset = materialLibrary;
             m_worldConfiguration = worldConfiguration;
             m_editorConfiguration = editorConfiguration;
 
@@ -38,6 +42,9 @@ namespace PhysX
             m_propertyEditor->ClearInstances();
             m_propertyEditor->AddInstance(&m_worldConfiguration);
             m_propertyEditor->AddInstance(&m_editorConfiguration);
+#ifdef ENABLE_DEFAULT_MATERIAL_LIBRARY
+            m_propertyEditor->AddInstance(&m_defaultPhysicsMaterialLibrary);
+#endif
             m_propertyEditor->InvalidateAll();
             blockSignals(false);
         }
@@ -47,6 +54,8 @@ namespace PhysX
             QVBoxLayout* verticalLayout = new QVBoxLayout(parent);
             verticalLayout->setContentsMargins(0, 0, 0, 0);
             verticalLayout->setSpacing(0);
+
+            m_documentationLinkWidget = new DocumentationLinkWidget(s_settingsDocumentationLink, s_settingsDocumentationAddress);
 
             AZ::SerializeContext* m_serializeContext;
             AZ::ComponentApplicationBus::BroadcastResult(m_serializeContext, &AZ::ComponentApplicationRequests::GetSerializeContext);
@@ -58,6 +67,7 @@ namespace PhysX
             m_propertyEditor->show();
             m_propertyEditor->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
 
+            verticalLayout->addWidget(m_documentationLinkWidget);
             verticalLayout->addWidget(m_propertyEditor);
         }
 
@@ -67,7 +77,7 @@ namespace PhysX
 
         void SettingsWidget::AfterPropertyModified(AzToolsFramework::InstanceDataNode* /*node*/)
         {
-            emit onValueChanged(m_settings, m_worldConfiguration, m_editorConfiguration);
+            emit onValueChanged(m_defaultPhysicsMaterialLibrary.m_asset, m_worldConfiguration, m_editorConfiguration);
         }
 
         void SettingsWidget::SetPropertyEditingActive(AzToolsFramework::InstanceDataNode* /*node*/)
@@ -76,7 +86,7 @@ namespace PhysX
 
         void SettingsWidget::SetPropertyEditingComplete(AzToolsFramework::InstanceDataNode* /*node*/)
         {
-            emit onValueChanged(m_settings, m_worldConfiguration, m_editorConfiguration);
+            emit onValueChanged(m_defaultPhysicsMaterialLibrary.m_asset, m_worldConfiguration, m_editorConfiguration);
         }
 
         void SettingsWidget::SealUndoStack()

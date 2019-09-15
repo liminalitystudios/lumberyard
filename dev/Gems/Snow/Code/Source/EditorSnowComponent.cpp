@@ -38,7 +38,7 @@ namespace Snow
                 editContext->Class<EditorSnowComponent>("Snow", "Defines snow settings for the level ")
                     ->ClassElement(AZ::Edit::ClassElements::EditorData, "")
                         ->Attribute(AZ::Edit::Attributes::Category, "Environment")
-                        ->Attribute(AZ::Edit::Attributes::Icon, "Editor/Icons/Components/Snow.png")
+                        ->Attribute(AZ::Edit::Attributes::Icon, "Editor/Icons/Components/Snow.svg")
                         ->Attribute(AZ::Edit::Attributes::ViewportIcon, "Editor/Icons/Components/Viewport/Snow.png")
                         ->Attribute(AZ::Edit::Attributes::AppearsInAddComponentMenu, AZ_CRC("Game", 0x232b318c))
                         ->Attribute(AZ::Edit::Attributes::HelpPageURL, "http://docs.aws.amazon.com/console/lumberyard/userguide/snow-component")
@@ -193,19 +193,12 @@ namespace Snow
         }
     }
 
-    void EditorSnowComponent::DisplayEntity(bool& handled)
+    void EditorSnowComponent::DisplayEntityViewport(
+        const AzFramework::ViewportInfo& viewportInfo,
+        AzFramework::DebugDisplayRequests& debugDisplay)
     {
-        auto dc = AzFramework::EntityDebugDisplayRequestBus::FindFirstHandler();
-        if (dc == nullptr)
-        {
-            handled = false;
-            return;
-        }
-
-        dc->SetColor(AZ::Vector4(1.0f, 1.0f, 1.0f, 1.0f));
-        dc->DrawWireSphere(m_currentWorldTransform.GetPosition(), m_snowOptions.m_radius);
-
-        handled = true;
+        debugDisplay.SetColor(AZ::Vector4(1.0f, 1.0f, 1.0f, 1.0f));
+        debugDisplay.DrawWireSphere(m_currentWorldTransform.GetPosition(), m_snowOptions.m_radius);
     }
 
     void EditorSnowComponent::OnTick(float deltaTime, AZ::ScriptTimePoint time)

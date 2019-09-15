@@ -18,23 +18,15 @@
 #include <AzCore/Memory/SystemAllocator.h>
 #include <AzCore/IO/SystemFile.h> // AZ_MAX_PATH_LEN
 #include "StringFunc.h"
+#include <AzCore/AzCore_Traits_Platform.h>
+#include <AzFramework/AzFramework_Traits_Platform.h>
 
-#if !defined(AZ_PLATFORM_WINDOWS)
-#if defined(AZ_RESTRICTED_PLATFORM)
-    #if defined(AZ_PLATFORM_XENIA)
-        #include "Xenia/StringFunc_cpp_xenia.inl"
-    #elif defined(AZ_PLATFORM_PROVO)
-        #include "Provo/StringFunc_cpp_provo.inl"
-    #endif
-#endif
-#if defined(AZ_RESTRICTED_SECTION_IMPLEMENTED)
-#undef AZ_RESTRICTED_SECTION_IMPLEMENTED
-#else
+#if !AZ_TRAIT_USE_WINDOWS_FILE_API
 
 //Have to declare this typedef for Android & Linux to minimise changes elsewhere in this file
-#if defined(AZ_PLATFORM_ANDROID) || defined(AZ_PLATFORM_LINUX)
+#if AZ_TRAIT_AZFRAMEWORK_USE_ERRNO_T_TYPEDEF
 typedef int errno_t;
-#endif //AZ_PLATFORM_ANDROID
+#endif
 
 void ClearToEmptyStr(char* buffer)
 {
@@ -159,7 +151,6 @@ errno_t _splitpath_s (const char* path,
     return 0;
 }
 #endif
-#endif
 
 // Some platforms define NAME_MAX but Windows doesn't and the AZ headers provide no equivalent
 #define MAX_NAME_LEN 255
@@ -275,28 +266,19 @@ namespace AzFramework
             return AZStd::string::npos;
         }
 
-        size_t Find(const char* in, const char* s, size_t offset /*= 0*/, bool bReverse /*= false*/, bool bCaseSensitive /*= false*/)
+        size_t Find(AZStd::string_view in, AZStd::string_view s, size_t offset /*= 0*/, bool bReverse /*= false*/, bool bCaseSensitive /*= false*/)
         {
-            if (!in || !s)
+            if (in.empty() || s.empty())
             {
                 return AZStd::string::npos;
             }
 
-            size_t inlen = strlen(in);
-            if (!inlen)
-            {
-                return AZStd::string::npos;
-            }
+            const size_t inlen = in.size();
+            const size_t slen = s.size();
 
             if (offset == AZStd::string::npos)
             {
                 offset = 0;
-            }
-
-            size_t slen = strlen(s);
-            if (slen == 0)
-            {
-                return AZStd::string::npos;
             }
 
             if (offset + slen > inlen)
@@ -309,28 +291,28 @@ namespace AzFramework
             if (bReverse)
             {
                 // Start at the end (- pos)
-                pCur = in + inlen - slen - offset;
+                pCur = in.data() + inlen - slen - offset;
             }
             else
             {
                 // Start at the beginning (+ pos)
-                pCur = in + offset;
+                pCur = in.data() + offset;
             }
 
             do
             {
                 if (bCaseSensitive)
                 {
-                    if (!strncmp(pCur, s, slen))
+                    if (!strncmp(pCur, s.data(), slen))
                     {
-                        return static_cast<size_t>(pCur - in);
+                        return static_cast<size_t>(pCur - in.data());
                     }
                 }
                 else
                 {
-                    if (!azstrnicmp(pCur, s, slen))
+                    if (!azstrnicmp(pCur, s.data(), slen))
                     {
-                        return static_cast<size_t>(pCur - in);
+                        return static_cast<size_t>(pCur - in.data());
                     }
                 }
 
@@ -342,7 +324,7 @@ namespace AzFramework
                 {
                     pCur++;
                 }
-            } while (bReverse ? pCur >= in : pCur - in <= static_cast<ptrdiff_t>(inlen));
+            } while (bReverse ? pCur >= in.data() : pCur - in.data() <= static_cast<ptrdiff_t>(inlen));
 
             return AZStd::string::npos;
         }
@@ -2389,6 +2371,69 @@ namespace AzFramework
                 {
                     Replace(inout, AZ_DOUBLE_CORRECT_FILESYSTEM_SEPARATOR, AZ_CORRECT_FILESYSTEM_SEPARATOR_STRING);
                 }
+
+                const char* const curDirToken = AZ_CORRECT_FILESYSTEM_SEPARATOR_STRING "." AZ_CORRECT_FILESYSTEM_SEPARATOR_STRING;
+                const char* const parentDirToken = AZ_CORRECT_FILESYSTEM_SEPARATOR_STRING ".." AZ_CORRECT_FILESYSTEM_SEPARATOR_STRING;
+
+                // Clear out any '/./' references as '.' represents the current directory
+                size_t curPos = 0;
+                while ((pos = inout.find(curDirToken, curPos)) != AZStd::string::npos)
+                {
+                    inout.replace(pos, 3, AZ_CORRECT_FILESYSTEM_SEPARATOR_STRING);
+                    curPos = pos;
+                }
+
+                // If there are any '/../'  patterns, they need to be collapsed against any previous directory that precedes it.
+                // If the '..' attempts to collapse beyond the root, then just absorb it. We are following how python handles its
+                // normalize operation (os.path.normalize)
+                // 
+                // e.g.
+                //
+                // C:\\One\\Two\\..\\Three\\  -> C:\\One\\Three\\
+                // C:\\One\\..\\..\\Two\\     -> C:\\Two\\
+                // C:\\One\\Two\\Three\\..\\  -> C:\\One\\Two\\
+                // 
+                if ((pos = inout.find(parentDirToken)) != AZStd::string::npos)
+                {
+#if AZ_TRAIT_OS_USE_WINDOWS_FILE_PATHS
+                    // Attempt to get a drive letter from the path. If this is the root on a win based file system, then 
+                    // a drive letter will be returned, and we wont collapse beyond this point. Otherwise, we wont collapse beyond
+                    // the beginning of the path.
+                    AZStd::string driveLetter;
+                    GetDrive(inout.c_str(), driveLetter);
+                    size_t startingPos = driveLetter.length();
+#else
+                    // For posix-based systems, starting with a '/' will represent an absolute path. Also, 
+                    size_t startingPos = inout.find_first_not_of(AZ_CORRECT_FILESYSTEM_SEPARATOR);
+                    startingPos = (startingPos != AZStd::string::npos && startingPos != 0) ? startingPos - 1 : 0;
+#endif // AZ_TRAIT_OS_USE_WINDOWS_FILE_PATHS
+
+                    while ((pos != AZStd::string::npos) && (pos >= startingPos))
+                    {
+                        // If we found a '/../' pattern, look for the previous '/' before it to start a nullifying replacement
+                        size_t startingCollapseIndex = inout.rfind(AZ_CORRECT_FILESYSTEM_SEPARATOR_STRING, pos - 1);
+                        size_t collapseSubstrSize;
+
+                        if ((startingCollapseIndex == AZStd::string::npos) || (startingCollapseIndex < startingPos))
+                        {
+                            // There are no matching parent folder to collapse or we've reached the start of the path, so just eat up the current
+                            // '../'
+                            startingCollapseIndex = startingPos;
+                            collapseSubstrSize = 3; // Length of '../'
+                        }
+                        else
+                        {
+                            // Based on the previous path separator, we will calculate the size of the path + '../' (ie /a/path/../b -> a/b)
+                            // and attempt to replace it with an empty string (ie remove the chunk)
+                            collapseSubstrSize = pos - startingCollapseIndex + 3;
+                            AZ_Assert(startingCollapseIndex + collapseSubstrSize < inout.length(), "Nullifying substring length greater than length of the original string.");
+                        }
+                        // Replace the substring (nullifier) with a blank string
+                        inout.replace(startingCollapseIndex, collapseSubstrSize, "");
+                        pos = inout.find(parentDirToken);
+                    }
+                }
+
 
                 return IsValid(inout.c_str());
             }

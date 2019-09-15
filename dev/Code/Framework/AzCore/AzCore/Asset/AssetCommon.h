@@ -22,10 +22,6 @@
 #include <AzCore/std/string/string.h>
 #include <AzCore/std/string/string_view.h>
 
-#if defined(AZ_PLATFORM_LINUX) || defined(AZ_PLATFORM_ANDROID) || defined(AZ_PLATFORM_APPLE)
-#   include <stdio.h> // for snprintf
-#endif
-
 namespace AZ
 {
     class AssetSerializer;
@@ -84,6 +80,7 @@ namespace AZ
          * Constants
          */
         static const AssetType  s_invalidAssetType = AZ::Uuid::CreateNull();
+        static const int  s_defaultCreationToken = -1;
 
         /**
          * Base class for all asset types.
@@ -145,8 +142,6 @@ namespace AZ
              */
             virtual bool IsRegisterReadonlyAndShareable() { return true; }
 
-            void RemoveFromDB();
-
             // Workaround for VS2013
             // https://connect.microsoft.com/VisualStudio/feedback/details/800328/std-is-copy-constructible-is-broken
             AssetData(const AssetData&) = delete;
@@ -154,6 +149,11 @@ namespace AZ
             AZStd::atomic_int m_useCount;
             AZStd::atomic_int m_status;
             AssetId m_assetId;
+            // This is used to identify a unique asset and should only be set by the asset manager 
+            // and therefore does not need to be atomic.
+            // All shared copy of an asset should have the same identifier and therefore
+            // should not be modified while making copy of an existing asset. 
+            int m_creationToken = s_defaultCreationToken;
         };
 
         /**
@@ -205,10 +205,8 @@ namespace AZ
             template<typename U>
             Asset(const Asset<U>& rhs);
 
-#if defined(AZ_HAS_RVALUE_REFS)
             Asset(Asset&& rhs);
             Asset& operator=(Asset&& rhs);
-#endif
             ~Asset();
 
             Asset& operator=(const Asset& rhs);
@@ -465,15 +463,22 @@ namespace AZ
         public:
             AZ_CLASS_ALLOCATOR(AssetBusCallbacks, AZ::SystemAllocator, 0);
 
-            typedef AZStd::function<void (const Asset<AssetData>& /*asset*/, AssetBusCallbacks& /*callbacks*/)> AssetReadyCB;
-            typedef AZStd::function<void (const Asset<AssetData>& /*asset*/, void* /*oldDataPointer*/, AssetBusCallbacks& /*callbacks*/)> AssetMovedCB;
-            typedef AZStd::function<void (const Asset<AssetData>& /*asset*/, AssetBusCallbacks& /*callbacks*/)> AssetReloadedCB;
-            typedef AZStd::function<void (const Asset<AssetData>& /*asset*/, bool /*isSuccessful*/, AssetBusCallbacks& /*callbacks*/)> AssetSavedCB;
+            typedef AZStd::function<void (Asset<AssetData> /*asset*/, AssetBusCallbacks& /*callbacks*/)> AssetReadyCB;
+            typedef AZStd::function<void (Asset<AssetData> /*asset*/, void* /*oldDataPointer*/, AssetBusCallbacks& /*callbacks*/)> AssetMovedCB;
+            typedef AZStd::function<void (Asset<AssetData> /*asset*/, AssetBusCallbacks& /*callbacks*/)> AssetReloadedCB;
+            typedef AZStd::function<void (Asset<AssetData> /*asset*/, bool /*isSuccessful*/, AssetBusCallbacks& /*callbacks*/)> AssetSavedCB;
             typedef AZStd::function<void (const AssetId& /*assetId*/, const AssetType& /*assetType*/, AssetBusCallbacks& /*callbacks*/)> AssetUnloadedCB;
-            typedef AZStd::function<void (const Asset<AssetData>& /*asset*/, AssetBusCallbacks& /*callbacks*/)> AssetErrorCB;
+            typedef AZStd::function<void (Asset<AssetData> /*asset*/, AssetBusCallbacks& /*callbacks*/)> AssetErrorCB;
 
             void SetCallbacks(const AssetReadyCB& readyCB, const AssetMovedCB& movedCB, const AssetReloadedCB& reloadedCB, const AssetSavedCB& savedCB, const AssetUnloadedCB& unloadedCB, const AssetErrorCB& errorCB);
             void ClearCallbacks();
+
+            void SetOnAssetReadyCallback(const AssetReadyCB& readyCB);
+            void SetOnAssetMovedCallback(const AssetMovedCB& movedCB);
+            void SetOnAssetReloadedCallback(const AssetReloadedCB& reloadedCB);
+            void SetOnAssetSavedCallback(const AssetSavedCB& savedCB);
+            void SetOnAssetUnloadedCallback(const AssetUnloadedCB& unloadedCB);
+            void SetOnAssetErrorCallback(const AssetErrorCB& errorCB);
 
             void OnAssetReady(Asset<AssetData> asset) override;
             void OnAssetMoved(Asset<AssetData> asset, void* oldDataPointer) override;
@@ -622,7 +627,6 @@ namespace AZ
             SetData(rhs.m_assetData);
         }
 
-#if defined(AZ_HAS_RVALUE_REFS)
         //=========================================================================
         template<class T>
         Asset<T>::Asset(Asset&& rhs)
@@ -666,7 +670,7 @@ namespace AZ
             }
             return *this;
         }
-#endif
+
         //=========================================================================
         template<class T>
         Asset<T>::~Asset()

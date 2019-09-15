@@ -78,6 +78,7 @@
 
 #include <AzCore/base.h>
 #include <AzCore/Component/ComponentApplication.h>
+#include <AzCore/IO/Streamer.h>
 #include <AzCore/std/string/conversions.h>
 #include <AzFramework/Asset/AssetCatalogBus.h>
 #include <AzFramework/Input/Buses/Requests/InputChannelRequestBus.h>
@@ -539,7 +540,7 @@ AZ::Outcome<void, AZStd::string> CGameEngine::Init(
 
     sip.pSharedEnvironment = AZ::Environment::GetInstance();
 
-#ifdef AZ_PLATFORM_APPLE_OSX
+#ifdef AZ_PLATFORM_MAC
     // Create a hidden QWidget. Would show a black window on macOS otherwise.
     auto window = new QWidget();
     QObject::connect(qApp, &QApplication::lastWindowClosed, window, &QWidget::deleteLater);
@@ -566,7 +567,7 @@ AZ::Outcome<void, AZStd::string> CGameEngine::Init(
     if (sInCmdLine)
     {
         azstrncpy(sip.szSystemCmdLine, AZ_COMMAND_LINE_LEN, sInCmdLine, AZ_COMMAND_LINE_LEN);
-        if (strstr(sInCmdLine, "-export"))
+        if (strstr(sInCmdLine, "-export") || strstr(sInCmdLine, "/export"))
         {
             sip.bUnattendedMode = true;
         }
@@ -1020,6 +1021,8 @@ void CGameEngine::SwitchToInGame()
         gEnv->p3DEngine->ResetPostEffects();
     }
 
+    AZ::IO::Streamer::Instance().FlushCaches();
+    
     GetIEditor()->Notify(eNotify_OnBeginGameMode);
 
     m_pISystem->SetThreadState(ESubsys_Physics, false);

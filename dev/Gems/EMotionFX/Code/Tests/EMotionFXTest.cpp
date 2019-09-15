@@ -10,8 +10,8 @@
 *
 */
 
-#include "EMotionFX_precompiled.h"
-
 #include <AzTest/AzTest.h>
 
-AZ_UNIT_TEST_HOOK();
+// The fuzz testing causes errors inside the object stream handlers, so we are disabling the default environment for now
+AZ_UNIT_TEST_HOOK(nullptr);
+AZ_INTEG_TEST_HOOK();

@@ -332,6 +332,10 @@ unsigned long GetCPUFeatureSet()
         {
             features |= CFI_SSE3;
         }
+        if (CPUInfo[2] & (1 << 29))
+        {
+            features |= CFI_F16C;
+        }
     }
 
     if (nExIds > 0x80000000)
@@ -1397,6 +1401,13 @@ void CCpuFeatures::Detect(void)
         char buffer[512];
         while (!feof(cpu_info))
         {
+            if (nCpu >= MAX_CPU)
+            {
+                --nCpu; //Decrement so the sets after the while loop matches the number of CPUs examined
+                CryLogAlways("Found a higher than expected number of CPUs, defaulting to %d", MAX_CPU);
+                break;
+            }
+
             fgets(buffer, sizeof(buffer), cpu_info);
 
             if (buffer[0] == '\0' || buffer[0] == '\n')
@@ -1607,6 +1618,10 @@ void CCpuFeatures::Detect(void)
     if (has3DNow())
     {
         g_CpuFlags |= CPUF_3DNOW;
+    }
+    if (hasF16C())
+    {
+        g_CpuFlags |= CPUF_F16C;
     }
 }
 

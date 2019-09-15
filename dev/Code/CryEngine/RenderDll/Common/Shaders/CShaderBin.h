@@ -39,6 +39,11 @@ struct SShaderBinHeader
     uint32 m_nTokens;
     uint32 m_nSourceCRC32;
 
+    SShaderBinHeader()
+    {
+        memset(this, 0, sizeof(*this));
+    }
+
     AUTO_STRUCT_INFO
 };
 
@@ -51,6 +56,11 @@ struct SShaderBinParamsHeader
     int32 nSamplers;
     int32 nTextures;
     int32 nFuncs;
+
+    SShaderBinParamsHeader()
+    {
+        memset(this, 0, sizeof(*this));
+    }
 
     AUTO_STRUCT_INFO
 };
@@ -238,8 +248,8 @@ struct SShaderFXParams
     std::vector<SFXParam> m_FXParams;
     std::vector<SFXSampler> m_FXSamplers;
     std::vector<SFXTexture> m_FXTextures;
+    std::vector<STexSamplerFX> m_FXSamplersOld; // Equivalent to FXTexSamplers elsewhere
 
-    std::vector<STexSamplerFX> m_FXSamplersOld;
     DynArray<SShaderParam> m_PublicParams;
 
     SShaderFXParams()

@@ -18,6 +18,8 @@
 
 struct IStatObj;
 struct ICharacterInstance;
+struct SRenderingPassInfo;
+struct SRendParams;
 
 namespace LmbrCentral
 {
@@ -29,6 +31,16 @@ namespace LmbrCentral
         : public AZ::ComponentBus
     {
     public:
+
+        /**
+        * Returns the axis aligned bounding box in world coordinates
+        */
+        virtual AZ::Aabb GetWorldBounds() = 0;
+
+        /**
+        * Returns the axis aligned bounding box in model coordinates
+        */
+        virtual AZ::Aabb GetLocalBounds() = 0;
 
         /**
         * Sets the mesh asset for this component
@@ -133,6 +145,13 @@ namespace LmbrCentral
          * Notifies listeners that the mesh instance has been destroyed.
         */
         virtual void OnMeshDestroyed() {}
+
+        virtual void OnBoundsReset() {};
+
+        /*
+         * Notifies listeners prior to making the render call 
+         */
+        virtual void OnMeshPreRender(const struct SRendParams& inOutRenderParams, const SRenderingPassInfo& passInfo) {};
 
         /**
          * When connecting to this bus if the asset is ready you will immediately get an OnMeshCreated event

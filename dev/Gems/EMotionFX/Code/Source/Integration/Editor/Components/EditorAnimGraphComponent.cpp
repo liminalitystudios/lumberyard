@@ -39,10 +39,11 @@ namespace EMotionFX
             if (serializeContext)
             {
                 serializeContext->Class<EditorAnimGraphComponent, AzToolsFramework::Components::EditorComponentBase>()
-                    ->Version(1)
+                    ->Version(2)
                     ->Field("AnimGraphAsset", &EditorAnimGraphComponent::m_animGraphAsset)
                     ->Field("MotionSetAsset", &EditorAnimGraphComponent::m_motionSetAsset)
                     ->Field("ActiveMotionSetName", &EditorAnimGraphComponent::m_activeMotionSetName)
+                    ->Field("DebugVisualization", &EditorAnimGraphComponent::m_visualize)
                     ->Field("ParameterDefaults", &EditorAnimGraphComponent::m_parameterDefaults)
                     ;
 
@@ -62,9 +63,9 @@ namespace EMotionFX
                         "Anim Graph", "The Anim Graph component manages a set of assets that are built in the Animation Editor, including the animation graph, default parameter settings, and assigned motion set for the associated Actor")
                         ->ClassElement(AZ::Edit::ClassElements::EditorData, "")
                             ->Attribute(AZ::Edit::Attributes::Category, "Animation")
-                            ->Attribute(AZ::Edit::Attributes::Icon, ":/EMotionFX/AnimGraphComponent.png")
+                            ->Attribute(AZ::Edit::Attributes::Icon, ":/EMotionFX/AnimGraphComponent.svg")
                             ->Attribute(AZ::Edit::Attributes::PrimaryAssetType, azrtti_typeid<AnimGraphAsset>())
-                            ->Attribute(AZ::Edit::Attributes::ViewportIcon, ":/EMotionFX/AnimGraphComponent.png")
+                            ->Attribute(AZ::Edit::Attributes::ViewportIcon, ":/EMotionFX/AnimGraphComponent.svg")
                             ->Attribute(AZ::Edit::Attributes::AppearsInAddComponentMenu, AZ_CRC("Game", 0x232b318c))
                             ->Attribute(AZ::Edit::Attributes::AutoExpand, true)
                             ->Attribute(AZ::Edit::Attributes::HelpPageURL, "https://docs.aws.amazon.com/lumberyard/latest/userguide/component-animgraph.html")
@@ -76,6 +77,7 @@ namespace EMotionFX
                             ->Attribute(AZ::Edit::Attributes::ChangeNotify, &EditorAnimGraphComponent::OnMotionSetAssetSelected)
                         ->DataElement(AZ_CRC("MotionSetName", 0xcf534ea6), &EditorAnimGraphComponent::m_activeMotionSetName, "Active motion set", "Motion set to use for this anim graph instance")
                             ->Attribute(AZ_CRC("MotionSetAsset", 0xd4e88984), &EditorAnimGraphComponent::GetMotionAsset)
+                        ->DataElement(AZ::Edit::UIHandlers::Default, &EditorAnimGraphComponent::m_visualize, "Debug visualization", "Enable this to allow the anim graph to render debug visualization. Enable debug rendering on anim graph nodes first.")
                         ->DataElement(AZ::Edit::UIHandlers::Default, &EditorAnimGraphComponent::m_animGraphAsset,
                             "Anim graph", "EMotion FX anim graph to be assigned to this actor.")
                             ->Attribute(AZ::Edit::Attributes::ChangeNotify, &EditorAnimGraphComponent::OnAnimGraphAssetSelected)
@@ -235,6 +237,7 @@ namespace EMotionFX
 
             if (asset == m_animGraphAsset)
             {
+                m_animGraphAsset = asset;
                 AnimGraphAsset* data = m_animGraphAsset.GetAs<AnimGraphAsset>();
                 if (!data)
                 {
@@ -292,25 +295,28 @@ namespace EMotionFX
                         m_parameterDefaults.m_parameters.emplace_back(aznew AZ::ScriptPropertyBoolean(paramName.c_str(), boolParam->GetDefaultValue()));
                     }
                 }
-
             }
-            else if (asset == m_motionSetAsset) 
+            else if (asset == m_motionSetAsset)
             {
+                m_motionSetAsset = asset;
                 const MotionSetAsset* data = m_motionSetAsset.GetAs<MotionSetAsset>();
                 if (data)
                 {
                     const EMotionFX::MotionSet* rootMotionSet = data->m_emfxMotionSet.get();
-                    if (m_activeMotionSetName.empty())
+                    if (rootMotionSet)
                     {
-                        // if motion set name is empty, grab the root
-                        m_activeMotionSetName = rootMotionSet->GetName();
-                    }
-                    else
-                    {
-                        const EMotionFX::MotionSet* motionSet = rootMotionSet->RecursiveFindMotionSetByName(m_activeMotionSetName, /*isOwnedByRuntime = */true);
-                        if (!motionSet)
+                        if (m_activeMotionSetName.empty())
                         {
+                            // if motion set name is empty, grab the root
                             m_activeMotionSetName = rootMotionSet->GetName();
+                        }
+                        else
+                        {
+                            const EMotionFX::MotionSet* motionSet = rootMotionSet->RecursiveFindMotionSetByName(m_activeMotionSetName, /*isOwnedByRuntime = */true);
+                            if (!motionSet)
+                            {
+                                m_activeMotionSetName = rootMotionSet->GetName();
+                            }
                         }
                     }
                 }
@@ -340,6 +346,7 @@ namespace EMotionFX
             cfg.m_motionSetAsset = m_motionSetAsset;
             cfg.m_activeMotionSetName = m_activeMotionSetName;
             cfg.m_parameterDefaults = m_parameterDefaults;
+            cfg.m_visualize = m_visualize;
 
             gameEntity->AddComponent(aznew AnimGraphComponent(&cfg));
         }

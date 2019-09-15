@@ -223,16 +223,15 @@ namespace EMStudio
             MotionWindowPlugin::MotionTableEntry* entry = mMotionWindowPlugin->FindMotionEntryByID(selection.GetMotion(i)->GetID());
             if (entry == nullptr)
             {
-                MCore::LogError("Cannot find motion table entry for the given motion.");
+                MCore::LogWarning("Cannot find motion table entry for the given motion.");
                 continue;
             }
 
             EMotionFX::Motion*          motion              = entry->mMotion;
-            EMotionFX::PlayBackInfo*    defaultPlayBackInfo = motion->GetDefaultPlayBackInfo();
+            const EMotionFX::PlayBackInfo* defaultPlayBackInfo = motion->GetDefaultPlayBackInfo();
 
             if (defaultPlayBackInfo == nullptr)
             {
-                motion->CreateDefaultPlayBackInfo();
                 defaultPlayBackInfo = motion->GetDefaultPlayBackInfo();
             }
 

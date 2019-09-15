@@ -17,6 +17,7 @@
 
 #include <AzCore/Component/TickBus.h>
 #include <AzCore/Asset/AssetCommon.h>
+#include <AzCore/Component/ComponentApplicationBus.h>
 
 
 #if defined(AZ_RESTRICTED_PLATFORM)
@@ -208,18 +209,14 @@
 #include <AzCore/Module/Environment.h>
 #include <AzCore/Component/ComponentApplication.h>
 
+#include <AzFramework/Entity/EntityDebugDisplayBus.h>
+
 #include "Prefabs/PrefabManager.h"
 #include "Prefabs/ScriptBind_PrefabManager.h"
 #include <Graphics/ColorGradientManager.h>
 #include <Graphics/ScreenFader.h>
 
 #define DEFAULT_BAN_TIMEOUT (30.0f)
-
-#define PROFILE_CONSOLE_NO_SAVE         (0) // For console demo's which don't save their player profile
-
-#if PROFILE_CONSOLE_NO_SAVE
-#include "PlayerProfiles/PlayerProfileImplNoSave.h"
-#endif
 
 #include <Network/GameContextBridge.h>
 #include "MainThreadRenderRequestBus.h"
@@ -313,7 +310,6 @@ CCryAction::CCryAction()
     , m_pEntitySystem(0)
     , m_pTimer(0)
     , m_pLog(0)
-    , m_systemDll(0)
     , m_pGame(0)
     , m_pLevelSystem(0)
     , m_pActorSystem(0)
@@ -987,14 +983,27 @@ bool CCryAction::Init(SSystemInitParams& startupParams)
     {
 #if !defined(AZ_MONOLITHIC_BUILD)
 
-        m_systemDll = CryLoadLibraryDefName("CrySystem");
+        AZ::OSString crySystemPath = "CrySystem";
 
-        if (!m_systemDll)
+        // Let the application process the path
+        AZ::ComponentApplicationBus::Broadcast(&AZ::ComponentApplicationBus::Events::ResolveModulePath, crySystemPath);
+        m_crySystemModule = AZ::DynamicModuleHandle::Create(crySystemPath.c_str());
+        if (!m_crySystemModule->Load(false))
         {
             return false;
         }
-        PFNCREATESYSTEMINTERFACE CreateSystemInterface =
-            (PFNCREATESYSTEMINTERFACE)CryGetProcAddress(m_systemDll, DLL_INITFUNC_SYSTEM);
+
+
+        // We need to inject the environment first thing so that allocators are available immediately
+        InjectEnvironmentFunction injectEnv = m_crySystemModule->GetFunction<InjectEnvironmentFunction>(INJECT_ENVIRONMENT_FUNCTION);
+        if (injectEnv)
+        {
+            auto env = AZ::Environment::GetInstance();
+            injectEnv(env);
+        }
+
+
+        PFNCREATESYSTEMINTERFACE CreateSystemInterface = m_crySystemModule->GetFunction<PFNCREATESYSTEMINTERFACE>(DLL_INITFUNC_SYSTEM);
         if (CreateSystemInterface)
 #endif // AZ_MONOLITHIC_BUILD
         {
@@ -1125,10 +1134,6 @@ bool CCryAction::Init(SSystemInitParams& startupParams)
     m_pPersistentDebug = new CPersistentDebug();
     m_pPersistentDebug->Init();
 #if defined(CONSOLE)
- #if PROFILE_CONSOLE_NO_SAVE
-    // Used for demos
-    m_pPlayerProfileManager = new CPlayerProfileManager(new CPlayerProfileImplNoSave());
- #else
 #if defined(AZ_RESTRICTED_PLATFORM)
 #define AZ_RESTRICTED_SECTION CRYACTION_CPP_SECTION_3
     #if defined(AZ_PLATFORM_XENIA)
@@ -1142,7 +1147,6 @@ bool CCryAction::Init(SSystemInitParams& startupParams)
     #else
     m_pPlayerProfileManager = new CPlayerProfileManager(new CPlayerProfileImplConsole());
     #endif
- #endif
 #else
     m_pPlayerProfileManager = new CPlayerProfileManager(new CPlayerProfileImplFSDir());
 #endif
@@ -1612,6 +1616,12 @@ void CCryAction::Shutdown()
         SAFE_DELETE(m_pAIProxyManager);
     }
 
+    if (m_contextBridge)
+    {
+        m_contextBridge->Shutdown();
+        delete m_contextBridge;
+    }
+
     stl::free_container(m_frameworkExtensions);
 
     XMLCPB::CDebugUtils::Destroy();
@@ -1624,29 +1634,22 @@ void CCryAction::Shutdown()
     // having a dll handle means we did create the system interface
     // so we must release it
     SAFE_RELEASE(m_pSystem);
-    if (m_systemDll)
+    if (m_crySystemModule->IsLoaded())
     {
         typedef void*( * PtrFunc_ModuleShutdownISystem )(ISystem* pSystem);
-        PtrFunc_ModuleShutdownISystem pfnModuleShutdownISystem =
-            reinterpret_cast<PtrFunc_ModuleShutdownISystem>(CryGetProcAddress(m_systemDll, "ModuleShutdownISystem"));
+
+        PtrFunc_ModuleShutdownISystem pfnModuleShutdownISystem = m_crySystemModule->GetFunction<PtrFunc_ModuleShutdownISystem>("ModuleShutdownISystem");
 
         if (pfnModuleShutdownISystem)
         {
             pfnModuleShutdownISystem(m_pSystem);
         }
 
-        CryFreeLibrary(m_systemDll);
-        m_systemDll = 0;
+        m_crySystemModule->Unload();
     }
 
     SAFE_DELETE(m_nextFrameCommand);
     SAFE_DELETE(m_pPhysicsQueues);
-
-    if (m_contextBridge)
-    {
-        m_contextBridge->Shutdown();
-        delete m_contextBridge;
-    }
 
     m_pThis = 0;
 
@@ -1963,6 +1966,9 @@ bool CCryAction::PostUpdate(bool haveFocus, unsigned int updateFlags)
     gEnv->p3DEngine->PrepareOcclusion(m_pSystem->GetViewCamera());
 
     CALL_FRAMEWORK_LISTENERS(OnPreRender());
+
+    // Also broadcast for anyone else that needs to draw global debug to do so now
+    AzFramework::DebugDisplayEventBus::Broadcast(&AzFramework::DebugDisplayEvents::DrawGlobalDebugInfo);
 
     m_pSystem->Render();
 
@@ -2524,15 +2530,8 @@ const char* CCryAction::GetStartLevelSaveGameName()
     return levelstart.c_str();
 }
 
-static void BroadcastCheckpointEvent(ESaveGameReason reason)
+static void BroadcastCheckpointEvent(ESaveGameReason)
 {
-    if (reason == eSGR_FlowGraph || reason == eSGR_Command || reason == eSGR_LevelStart)
-    {
-        IPlatformOS::SPlatformEvent event(GetISystem()->GetPlatformOS()->GetFirstSignedInUser());
-        event.m_eEventType = IPlatformOS::SPlatformEvent::eET_FileWrite;
-        event.m_uParams.m_fileWrite.m_type = reason == eSGR_LevelStart ? IPlatformOS::SPlatformEvent::eFWT_CheckpointLevelStart : IPlatformOS::SPlatformEvent::eFWT_Checkpoint;
-        GetISystem()->GetPlatformOS()->NotifyListeners(event);
-    }
 }
 
 
@@ -2607,12 +2606,6 @@ bool CCryAction::SaveGame(const char* path, bool bQuick, bool bForceImmediate, E
         if (m_delayedSaveGameMethod == eSGM_NoSave)
         {
             BroadcastCheckpointEvent(reason);
-        }
-
-        IPlatformOS::CScopedSaveLoad osSaveLoad(GetISystem()->GetPlatformOS()->GetFirstSignedInUser(), true);
-        if (!osSaveLoad.Allowed())
-        {
-            return false;
         }
 
         // Best save profile or we'll lose persistent stats
@@ -2755,12 +2748,6 @@ ELoadGameResult CCryAction::LoadGame(const char* path, bool quick, bool ignoreDe
         {
             GameWarning("CCryAction::SaveGame: Suppressing QL (g_EnableLoadSave is disabled)");
         }
-        return eLGR_Failed;
-    }
-
-    IPlatformOS::CScopedSaveLoad osSaveLoad(GetISystem()->GetPlatformOS()->GetFirstSignedInUser(), false);
-    if (!osSaveLoad.Allowed())
-    {
         return eLGR_Failed;
     }
 

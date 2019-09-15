@@ -30,6 +30,10 @@ namespace AzToolsFramework
     {
         struct JobInfo;
     }
+    namespace Logging
+    {
+        class LogLine;
+    }
 }
 
 class QStringList;
@@ -41,6 +45,7 @@ namespace AssetProcessor
     struct AssetRecognizer;
     class JobEntry;
     class AssetDatabaseConnection;
+    struct BuilderParams;
 }
 
 namespace AssetUtilities
@@ -78,14 +83,30 @@ namespace AssetUtilities
     //! Updates the branch token in the bootstrap file
     bool UpdateBranchToken();
 
+    //! Checks to see if the asset processor is running in server mode
+    bool InServerMode();
+
+    //! Checks the args for the server parameter, returns true if found otherwise false.
+    bool CheckServerMode();
+
+    //! Reads the server address from the config file.
+    QString ServerAddress();
+
+
     //! Determine the name of the current game - for example, SamplesProject
     QString ComputeGameName(QString initialFolder = QString(), bool force = false);
 
     //! Reads the white list directly from the bootstrap file
     QString ReadWhitelistFromBootstrap(QString initialFolder = QString());
 
+    //! Reads the white list directly from the bootstrap file
+    QString ReadRemoteIpFromBootstrap(QString initialFolder = QString());
+
     //! Writes the white list directly to the bootstrap file
     bool WriteWhitelistToBootstrap(QStringList whiteList);
+    
+    //! Writes the remote ip directly to the bootstrap file
+    bool WriteRemoteIpToBootstrap(QString remoteIp);
 
     //! Reads the game name directly from the bootstrap file
     QString ReadGameNameFromBootstrap(QString initialFolder = QString());
@@ -187,8 +208,16 @@ namespace AssetUtilities
     AZStd::string ComputeJobLogFileName(const AssetProcessor::JobEntry& jobEntry);
     AZStd::string ComputeJobLogFileName(const AssetBuilderSDK::CreateJobsRequest& createJobsRequest);
 
-    void ReadJobLog(AzToolsFramework::AssetSystem::JobInfo& jobInfo, AzToolsFramework::AssetSystem::AssetJobLogResponse& response);
-    void ReadJobLog(const char* absolutePath, AzToolsFramework::AssetSystem::AssetJobLogResponse& response);
+    enum class ReadJobLogResult
+    {
+        Success,
+        MissingFileIO,
+        MissingLogFile,
+        EmptyLogFile,
+    };
+
+    ReadJobLogResult ReadJobLog(AzToolsFramework::AssetSystem::JobInfo& jobInfo, AzToolsFramework::AssetSystem::AssetJobLogResponse& response);
+    ReadJobLogResult ReadJobLog(const char* absolutePath, AzToolsFramework::AssetSystem::AssetJobLogResponse& response);
 
     //! interrogate a given file, which is specified as a full path name, and generate a fingerprint for it.
     unsigned int GenerateFingerprint(const AssetProcessor::JobDetails& jobDetail);
@@ -266,6 +295,8 @@ namespace AssetUtilities
 
         bool OnPrintf(const char* window, const char* message) override;
         //////////////////////////////////////////////////////////////////////////
+
+        void AppendLog(AzToolsFramework::Logging::LogLine& logLine);
 
     private:
         AZStd::unique_ptr<AzFramework::LogFile> m_logFile;

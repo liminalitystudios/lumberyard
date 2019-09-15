@@ -9,7 +9,6 @@
 * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 *
 */
-#ifndef AZ_UNITY_BUILD
 
 #include <AzCore/Asset/AssetManager.h>
 #include <AzCore/Asset/AssetInternal/LegacyBlockingAssetTypeManager.h>
@@ -22,8 +21,8 @@
 #include <AzCore/std/string/osstring.h>
 #include <AzCore/Jobs/JobFunction.h>
 #include <AzCore/Memory/OSAllocator.h>
-#include <AzCore/IO/Streamer.h>
-#include <AzCore/IO/GenericStreams.h>
+#include <AzCore/IO/FileIO.h>
+
 
 namespace AZ
 {
@@ -153,8 +152,8 @@ namespace AZ
                     }
                     else
                     {
-                        AZ_Assert(IO::Streamer::IsReady(), "We only support streamer IO at the moment. Make sure the streamer has been started!");
-                        IO::StreamerStream stream(loadInfo.m_streamName.c_str(), loadInfo.m_streamFlags, loadInfo.m_dataOffset, loadInfo.m_dataLen);
+                        IO::FileIOStream stream(loadInfo.m_streamName.c_str(), loadInfo.m_streamFlags);
+                        stream.Seek(loadInfo.m_dataOffset, IO::GenericStream::SeekMode::ST_SEEK_BEGIN);
                         return  m_assetHandler->LoadAssetData(m_asset, &stream, m_assetLoadFilterCB);
                     }
                 }
@@ -326,11 +325,9 @@ namespace AZ
                 AssetStreamInfo saveInfo = m_owner->GetSaveStreamInfoForAsset(m_asset.GetId(), m_asset.GetType());
                 if (saveInfo.IsValid())
                 {
-                    AZ_Assert(IO::Streamer::IsReady(), "We only support streamer IO at the moment. Make sure the streamer has been started!");
-                    {
-                        IO::StreamerStream stream(saveInfo.m_streamName.c_str(), saveInfo.m_streamFlags, saveInfo.m_dataOffset);
-                        isSaved = m_assetHandler->SaveAssetData(m_asset, &stream);
-                    }
+                    IO::FileIOStream stream(saveInfo.m_streamName.c_str(), saveInfo.m_streamFlags);
+                    stream.Seek(saveInfo.m_dataOffset, IO::GenericStream::SeekMode::ST_SEEK_BEGIN);
+                    isSaved = m_assetHandler->SaveAssetData(m_asset, &stream);
                 }
                 // queue broadcast message for delivery on game thread
                 EBUS_QUEUE_EVENT_ID(m_asset.GetId(), AssetBus, OnAssetSaved, m_asset, isSaved);
@@ -436,14 +433,10 @@ namespace AZ
 #if !(defined AZCORE_JOBS_IMPL_SYNCHRONOUS)
             m_numberOfWorkerThreads = AZ::GetMin(desc.m_maxWorkerThreads, AZStd::thread::hardware_concurrency());
 
-            JobManagerThreadDesc threadDesc(m_firstThreadCPU);
+            JobManagerThreadDesc threadDesc(AFFINITY_MASK_USERTHREADS);
             for (unsigned int i = 0; i < m_numberOfWorkerThreads; ++i)
             {
                 jobDesc.m_workerThreads.push_back(threadDesc);
-                if (threadDesc.m_cpuId > -1)
-                {
-                    threadDesc.m_cpuId++;
-                }
             }
 #else
             m_numberOfWorkerThreads = 0;
@@ -694,7 +687,7 @@ namespace AZ
                 {
                     // check if asset already exists
                     {
-                        
+
                         AssetMap::iterator it = m_assets.find(assetInfo.m_assetId);
                         if (it != m_assets.end())
                         {
@@ -709,30 +702,31 @@ namespace AZ
 
                     {
 
-                    // find the asset type handler
-                    AssetHandlerMap::iterator handlerIt = m_handlers.find(assetInfo.m_assetType);
-                    AZ_Error("AssetDatabase", handlerIt != m_handlers.end(), "No handler was registered for this asset [type:%s id:%s]!",
-                        assetInfo.m_assetType.ToString<AZ::OSString>().c_str(), assetInfo.m_assetId.ToString<AZ::OSString>().c_str());
-                    if (handlerIt != m_handlers.end())
-                    {
-                        // Create the asset ptr and insert it into our asset map.
-                        handler = handlerIt->second;
-                        if (isNewEntry)
+                        // find the asset type handler
+                        AssetHandlerMap::iterator handlerIt = m_handlers.find(assetInfo.m_assetType);
+                        AZ_Error("AssetDatabase", handlerIt != m_handlers.end(), "No handler was registered for this asset [type:%s id:%s]!",
+                            assetInfo.m_assetType.ToString<AZ::OSString>().c_str(), assetInfo.m_assetId.ToString<AZ::OSString>().c_str());
+                        if (handlerIt != m_handlers.end())
                         {
-                            assetData = handler->CreateAsset(assetInfo.m_assetId, assetInfo.m_assetType);
-                            if (assetData)
+                            // Create the asset ptr and insert it into our asset map.
+                            handler = handlerIt->second;
+                            if (isNewEntry)
                             {
-                                assetData->m_assetId = assetInfo.m_assetId;
-                                ++handler->m_nActiveAssets;
-                                asset = assetData;
-                            }
-                            else
-                            {
-                                AZ_Error("AssetDatabase", false, "Failed to create asset with (id=%s, type=%s)",
-                                    assetInfo.m_assetId.ToString<AZ::OSString>().c_str(), assetInfo.m_assetType.ToString<AZ::OSString>().c_str());
+                                assetData = handler->CreateAsset(assetInfo.m_assetId, assetInfo.m_assetType);
+                                if (assetData)
+                                {
+                                    assetData->m_assetId = assetInfo.m_assetId;
+                                    ++handler->m_nActiveAssets;
+                                    assetData->m_creationToken = ++m_creationTokenGenerator;
+                                    asset = assetData;
+                                }
+                                else
+                                {
+                                    AZ_Error("AssetDatabase", false, "Failed to create asset with (id=%s, type=%s)",
+                                        assetInfo.m_assetId.ToString<AZ::OSString>().c_str(), assetInfo.m_assetType.ToString<AZ::OSString>().c_str());
+                                }
                             }
                         }
-                    }
                     }
 
                     if (assetData)
@@ -771,15 +765,15 @@ namespace AZ
                                 if (m_blockingAssetTypeManager->HasBlockingHandlersForCurrentThread())
                                 {
                                     blockingWait = aznew WaitForAssetOnThreadWithBlockingJobs(assetData, m_blockingAssetTypeManager);
-                        }
+                                }
                                 else
                                 {
                                     blockingWait = aznew WaitForAssetOnThreadWithNoBlockingJobs(assetData);
                                 }
                             }
+                        }
                     }
                 }
-            }
             }
 
             if (!assetInfo.m_relativePath.empty())
@@ -790,7 +784,7 @@ namespace AZ
             // when AZCORE_JOBS_IMPL_SYNCHRONOUS is defined
             if (loadBlocking)
             {
-                if(loadJob)
+                if (loadJob)
                 {
                     // Process directly within the calling thread if loadBlocking flag is set.
                     loadJob->Process();
@@ -839,6 +833,7 @@ namespace AZ
                     if (assetData)
                     {
                         assetData->m_assetId = assetId;
+                        assetData->m_creationToken = ++m_creationTokenGenerator;
                         ++handler->m_nActiveAssets;
                         if (assetData->IsRegisterReadonlyAndShareable())
                         {
@@ -859,39 +854,34 @@ namespace AZ
         // ReleaseAsset
         // [6/19/2012]
         //=========================================================================
-        void AssetManager::ReleaseAsset(AssetData* asset)
+        void AssetManager::ReleaseAsset(AssetData* asset, AssetId assetId, AssetType assetType, bool removeAssetFromHash, int creationToken)
         {
             AZ_Assert(asset, "Cannot release NULL AssetPtr!");
-            AssetId assetId;
-            bool isInDatabase = false; // We do support assets that are not registered in the asset manager (with the same ID too).
+            bool wasInAssetsHash = false; // We do support assets that are not registered in the asset manager (with the same ID too).
             bool destroyAsset = false;
-            AssetType assetType = AZ::Uuid::CreateNull();
+            if (removeAssetFromHash)
             {
                 AZStd::lock_guard<AZStd::recursive_mutex> asset_lock(m_assetMutex);
-
+                AssetMap::iterator it = m_assets.find(assetId);
                 // need to check the count again in here in case
-                // someone was trying to get the asset on another thread
-                // Set it to -1 so only this thread will attempt to clean up the cache and delete the asset
+               // someone was trying to get the asset on another thread
+               // Set it to -1 so only this thread will attempt to clean up the cache and delete the asset
                 int expectedRefCount = 0;
-                if (asset->m_useCount.compare_exchange_strong(expectedRefCount, -1))
+                // if the assetId is not in the map or if the identifierId
+                // do not match it implies that the asset has been already destroyed.
+                // if the usecount is non zero it implies that we cannot destroy this asset.
+                if (it != m_assets.end() && it->second->m_creationToken == creationToken && it->second->m_useCount.compare_exchange_strong(expectedRefCount, -1))
                 {
+                    wasInAssetsHash = true;
+                    m_assets.erase(it);
                     destroyAsset = true;
-                    assetId = asset->GetId();
-                    assetType = asset->GetType();
-
-                    if (asset->IsRegisterReadonlyAndShareable())
-                    {
-                        AssetMap::iterator it = m_assets.find(assetId);
-                        if (it != m_assets.end())
-                        {
-                            if (asset == it->second)
-                            {
-                                isInDatabase = true;
-                                m_assets.erase(it);
-                            }
-                        }
-                    }
                 }
+            }
+            else
+            {
+                // if an asset is not shareable, it implies that that asset is not in the map 
+                // and therefore once its ref count goes to zero it cannot go back up again and therefore we can safely destroy it
+                destroyAsset = true;
             }
 
             // We have to separate the code which was removing the asset from the m_asset map while being locked, but then actually destroy the asset
@@ -905,12 +895,12 @@ namespace AZ
                 if (asset)
                 {
                     handler->DestroyAsset(asset);
-                    if (isInDatabase)
+                    if (wasInAssetsHash)
                     {
+                        --handler->m_nActiveAssets;
                         EBUS_QUEUE_EVENT_ID(assetId, AssetBus, OnAssetUnloaded, assetId, assetType);
                     }
                 }
-                --handler->m_nActiveAssets;
             }
         }
 
@@ -982,7 +972,6 @@ namespace AZ
                 if (newAssetData)
                 {
                     newAssetData->m_assetId = currentAssetData->GetId();
-                    ++handler->m_nActiveAssets;
                 }
             }
 
@@ -1029,7 +1018,6 @@ namespace AZ
                     AssetHandlerMap::iterator handlerIt = m_handlers.find(newData->GetType());
                     AZ_Assert(handlerIt != m_handlers.end(), "No handler was registered for this asset [type:0x%x id:%s]!",
                         newData->GetType().ToString<AZ::OSString>().c_str(), newData->GetId().ToString<AZ::OSString>().c_str());
-                    ++handlerIt->second->m_nActiveAssets;
                 }
 
                 AssignAssetData(asset);
@@ -1039,7 +1027,7 @@ namespace AZ
         //=========================================================================
         // GetHandler
         //=========================================================================
-        const AssetHandler* AssetManager::GetHandler(const AssetType& assetType)
+        AssetHandler* AssetManager::GetHandler(const AssetType& assetType)
         {
             auto handlerEntry = m_handlers.find(assetType);
             if (handlerEntry != m_handlers.end())
@@ -1063,9 +1051,17 @@ namespace AZ
             if (asset.Get()->IsRegisterReadonlyAndShareable())
             {
                 AZStd::lock_guard<AZStd::recursive_mutex> assetLock(m_assetMutex);
-
-                AZ_Assert(m_assets.find(assetId) == m_assets.end() || asset.Get()->RTTI_GetType() == m_assets.find(assetId)->second->RTTI_GetType(),
+                auto found = m_assets.find(assetId);
+                AZ_Assert(found == m_assets.end() || asset.Get()->RTTI_GetType() == found->second->RTTI_GetType(),
                     "New and old data types are mismatched!");
+
+                // if we are here it implies that we have two assets with the same asset id, and we are 
+                // trying to replace the old asset with the new asset which was not created using the asset manager system.
+                // In this scenario if any other system have cached the old asset then the asset wont be destroyed 
+                // because of creation token mismatch when it's ref count finally goes to zero. Since the old asset is not shareable anymore 
+                // manually setting the creationToken to default creation token will ensure that the asset is destroyed correctly.  
+                asset.m_assetData->m_creationToken = ++m_creationTokenGenerator;
+                found->second->m_creationToken = AZ::Data::s_defaultCreationToken;
 
                 // Held references to old data are retained, but replace the entry in the DB for future requests.
                 // Fire an OnAssetReloaded message so listeners can react to the new data.
@@ -1338,5 +1334,3 @@ namespace AZ
         }
     } // namespace Data
 }   // namespace AZ
-
-#endif // #ifndef AZ_UNITY_BUILD

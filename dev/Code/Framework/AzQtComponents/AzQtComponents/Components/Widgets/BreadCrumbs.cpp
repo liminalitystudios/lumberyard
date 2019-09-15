@@ -11,11 +11,14 @@
 */
 
 #include <AzQtComponents/Components/Widgets/BreadCrumbs.h>
+#include <AzQtComponents/Components/ConfigHelpers.h>
 #include <AzQtComponents/Components/Style.h>
 
 #include <QToolButton>
 #include <QLabel>
+AZ_PUSH_DISABLE_WARNING(4251, "-Wunknown-warning-option") // 4251: 'QLayoutItem::align': class 'QFlags<Qt::AlignmentFlag>' needs to have dll-interface to be used by clients of class 'QLayoutItem'
 #include <QHBoxLayout>
+AZ_POP_DISABLE_WARNING
 #include <QSettings>
 #include <QMenu>
 #include <QResizeEvent>
@@ -194,7 +197,7 @@ namespace AzQtComponents
         m_truncatedPaths = fullPath;
 
         // used to measure the width used by the path
-        const int availableWidth = width() * m_config.optimalPathWidth;
+        const int availableWidth = static_cast<int>(width() * m_config.optimalPathWidth);
         const QFontMetricsF fm(m_label->font());
         QString plainTextPath = "";
 
@@ -208,7 +211,11 @@ namespace AzQtComponents
         };
 
         // last section is not clickable
-        plainTextPath = m_truncatedPaths.takeLast();
+        if (!m_truncatedPaths.isEmpty())
+        {
+            plainTextPath = m_truncatedPaths.takeLast();
+        }
+
         htmlString.prepend(plainTextPath);
 
         while (!m_truncatedPaths.isEmpty())
@@ -271,17 +278,8 @@ namespace AzQtComponents
     {
         Config config = defaultConfig();
 
-        const QString linkColorKey = QStringLiteral("LinkColor");
-        if (settings.contains(linkColorKey))
-        {
-            config.linkColor = settings.value(linkColorKey).toString();
-        }
-
-        const QString optimalPathWidthKey = QStringLiteral("OptimalPathWidth");
-        if (settings.contains(optimalPathWidthKey))
-        {
-            config.optimalPathWidth = settings.value(optimalPathWidthKey).toFloat();
-        }
+        ConfigHelpers::read<QString>(settings, QStringLiteral("LinkColor"), config.linkColor);
+        ConfigHelpers::read<float>(settings, QStringLiteral("OptimalPathWidth"), config.optimalPathWidth);
 
         return config;
     }
@@ -291,7 +289,7 @@ namespace AzQtComponents
         Config config;
 
         config.linkColor = QStringLiteral("white");
-        config.optimalPathWidth = 0.8;
+        config.optimalPathWidth = 0.8f;
 
         return config;
     }

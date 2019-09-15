@@ -135,6 +135,13 @@ namespace LmbrCentral
             (base + e).GetMax(top + e));
     }
 
+    void CylinderShape::GetTransformAndLocalBounds(AZ::Transform& transform, AZ::Aabb& bounds)
+    {
+        const AZ::Vector3 extent(m_cylinderShapeConfig.m_radius, m_cylinderShapeConfig.m_radius, m_cylinderShapeConfig.m_height * 0.5f);
+        bounds = AZ::Aabb::CreateFromMinMax(-extent, extent);
+        transform = m_currentTransform;
+    }
+
     AZ::Vector3 CylinderShape::GenerateRandomPointInside(AZ::RandomDistributionType randomDistribution)
     {
         m_intersectionDataCache.UpdateIntersectionParams(m_currentTransform, m_cylinderShapeConfig);
@@ -147,11 +154,7 @@ namespace LmbrCentral
         // As std:normal_distribution requires a std:random_engine to be passed in, create one using a random seed that is guaranteed to be properly
         // random each time it is called
         time_t seedVal;
-#ifdef AZ_OS32
-        seedVal = AZ::Sfmt::GetInstance().Rand32();
-#else
         seedVal = AZ::Sfmt::GetInstance().Rand64();
-#endif
         std::default_random_engine generator;
         generator.seed(static_cast<unsigned int>(seedVal));
 
@@ -266,18 +269,18 @@ namespace LmbrCentral
 
     void DrawCylinderShape(
         const ShapeDrawParams& shapeDrawParams, const CylinderShapeConfig& cylinderShapeConfig,
-        AzFramework::EntityDebugDisplayRequests& displayContext)
+        AzFramework::DebugDisplayRequests& debugDisplay)
     {
         if (shapeDrawParams.m_filled)
         {
-            displayContext.SetColor(shapeDrawParams.m_shapeColor.GetAsVector4());
-            displayContext.DrawSolidCylinder(
+            debugDisplay.SetColor(shapeDrawParams.m_shapeColor.GetAsVector4());
+            debugDisplay.DrawSolidCylinder(
                 AZ::Vector3::CreateZero(), AZ::Vector3::CreateAxisZ(),
                 cylinderShapeConfig.m_radius, cylinderShapeConfig.m_height);
         }
 
-        displayContext.SetColor(shapeDrawParams.m_wireColor.GetAsVector4());
-        displayContext.DrawWireCylinder(
+        debugDisplay.SetColor(shapeDrawParams.m_wireColor.GetAsVector4());
+        debugDisplay.DrawWireCylinder(
             AZ::Vector3::CreateZero(), AZ::Vector3::CreateAxisZ(),
             cylinderShapeConfig.m_radius, cylinderShapeConfig.m_height);
     }

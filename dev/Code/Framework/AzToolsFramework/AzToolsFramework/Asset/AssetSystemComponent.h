@@ -71,6 +71,7 @@ namespace AzToolsFramework
             bool GetAssetSafeFolders(AZStd::vector<AZStd::string>& assetSafeFolders) override;
             bool IsAssetPlatformEnabled(const char* platform) override;
             int GetPendingAssetsForPlatform(const char* platform) override;
+            bool GetAssetsProducedBySourceUUID(const AZ::Uuid& sourceUuid, AZStd::vector<AZ::Data::AssetInfo>& productsAssetInfo) override;
             //////////////////////////////////////////////////////////////////////////
 
             //////////////////////////////////////////////////////////////////////////
@@ -101,6 +102,8 @@ namespace AzToolsFramework
             //////////////////////////////////////////////////////////////////////////
 
             AzFramework::SocketConnection::TMessageCallbackHandle m_cbHandle = 0;
+            AzFramework::SocketConnection::TMessageCallbackHandle m_showAssetBrowserCBHandle = 0;
+            AzFramework::SocketConnection::TMessageCallbackHandle m_wantShowAssetBrowserCBHandle = 0;
 
             AZStd::unordered_map<AZStd::string, AZStd::string> m_assetSourceRelativePathToFullPathCache;
         };

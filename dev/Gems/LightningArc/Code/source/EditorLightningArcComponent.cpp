@@ -129,7 +129,7 @@ namespace Lightning
                 editContext->Class<EditorLightningArcComponent>("Lightning Arc", "Produces an arcing effect that jumps to a random target entity.")
                     ->ClassElement(AZ::Edit::ClassElements::EditorData, "")
                     ->Attribute(AZ::Edit::Attributes::Category, "Rendering")
-                    ->Attribute(AZ::Edit::Attributes::Icon, "Editor/Icons/Components/LightningArc.png")
+                    ->Attribute(AZ::Edit::Attributes::Icon, "Editor/Icons/Components/LightningArc.svg")
                     ->Attribute(AZ::Edit::Attributes::ViewportIcon, "Editor/Icons/Components/Viewport/LightningArc.png")
                     ->Attribute(AZ::Edit::Attributes::AutoExpand, true)
                     ->Attribute(AZ::Edit::Attributes::AppearsInAddComponentMenu, AZ_CRC("Game", 0x232b318c))
@@ -192,13 +192,12 @@ namespace Lightning
         return gEnv->p3DEngine->GetMaterialManager()->LoadMaterial(materialPath.c_str());
     }
 
-    void EditorLightningArcComponent::DisplayEntity(bool& handled)
+    void EditorLightningArcComponent::DisplayEntityViewport(
+        const AzFramework::ViewportInfo& viewportInfo,
+        AzFramework::DebugDisplayRequests& debugDisplay)
     {
-        auto* dc = AzFramework::EntityDebugDisplayRequestBus::FindFirstHandler();
-        AZ_Assert(dc, "Invalid display context.");
-
         AZ::Color color(1.0f, 1.0f, 0.0f, 1.0f);
-        dc->SetColor(AZ::Vector4(color.GetR(), color.GetG(), color.GetB(), 1.f));
+        debugDisplay.SetColor(AZ::Vector4(color.GetR(), color.GetG(), color.GetB(), 1.f));
 
         AZ::Vector3 thisPos = AZ::Vector3::CreateZero();
         AZ::Vector3 targetPos = AZ::Vector3::CreateZero();
@@ -211,12 +210,9 @@ namespace Lightning
             if (entity.IsValid())
             {
                 AZ::TransformBus::EventResult(targetPos, entity, &AZ::TransformBus::Events::GetWorldTranslation);
-
-                dc->DrawLine(thisPos, targetPos);
+                debugDisplay.DrawLine(thisPos, targetPos);
             }
         }
-
-        handled = true;
     }
 
     AZ::Crc32 EditorLightningArcComponent::RefreshPresets()

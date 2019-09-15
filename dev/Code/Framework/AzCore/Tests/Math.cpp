@@ -10,8 +10,6 @@
 *
 */
 
-#include "TestTypes.h"
-
 #include <AzCore/Math/Vector2.h>
 #include <AzCore/Math/Vector3.h>
 #include <AzCore/Math/Aabb.h>
@@ -24,6 +22,7 @@
 #include <AzCore/Math/Color.h>
 #include <AzCore/Math/Spline.h>
 #include <AzCore/Math/IntersectSegment.h>
+#include <AzCore/UnitTest/TestTypes.h>
 
 #include <AzCore/Math/Sfmt.h>
 #include <AzCore/Math/Uuid.h>
@@ -5322,12 +5321,6 @@ namespace UnitTest
 
     TEST_F(MATH_SfmtTest, TestParallel32)
     {
-#if defined(AZ_PLATFORM_APPLE_OSX)
-        // This test blocks the execution on Mac, forcing to fail until it gets properly fixed.
-        EXPECT_TRUE(false);
-        return;
-#endif
-
         Sfmt sfmt;
         auto threadFunc = [&sfmt]()
             {
@@ -5350,12 +5343,6 @@ namespace UnitTest
 
     TEST_F(MATH_SfmtTest, TestParallel64)
     {
-#if defined(AZ_PLATFORM_APPLE_OSX)
-        // This test blocks the execution on Mac, forcing to fail until it gets properly fixed.
-        EXPECT_TRUE(false);
-        return;
-#endif
-
         Sfmt sfmt;
         auto threadFunc = [&sfmt]()
             {
@@ -5378,12 +5365,6 @@ namespace UnitTest
 
     TEST_F(MATH_SfmtTest, TestParallelInterleaved)
     {
-#if defined(AZ_PLATFORM_APPLE_OSX)
-        // This test blocks the execution on Mac, forcing to fail until it gets properly fixed.
-        EXPECT_TRUE(false);
-        return;
-#endif
-
         Sfmt sfmt;
         auto threadFunc = [&sfmt]()
             {

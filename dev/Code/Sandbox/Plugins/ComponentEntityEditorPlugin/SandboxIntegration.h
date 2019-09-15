@@ -13,18 +13,22 @@
 #ifndef CRYINCLUDE_COMPONENTENTITYEDITORPLUGIN_SANDBOXINTEGRATION_H
 #define CRYINCLUDE_COMPONENTENTITYEDITORPLUGIN_SANDBOXINTEGRATION_H
 
+#include <AzCore/Component/ComponentApplicationBus.h>
+#include <AzCore/Slice/SliceBus.h>
+#include <AzCore/Slice/SliceComponent.h>
+#include <AzCore/Math/Uuid.h>
+#include <AzCore/std/string/conversions.h>
+#include <AzFramework/Asset/AssetCatalogBus.h>
+#include <AzFramework/Entity/EntityDebugDisplayBus.h>
+#include <AzFramework/Viewport/DisplayContextRequestBus.h>
 #include <AzToolsFramework/API/ToolsApplicationAPI.h>
 #include <AzToolsFramework/API/HyperGraphBus.h>
 #include <AzToolsFramework/UI/PropertyEditor/PropertyEditorAPI.h>
 #include <AzToolsFramework/UI/Slice/SliceOverridesNotificationWindowManager.hxx>
 #include <AzToolsFramework/UI/Slice/SliceOverridesNotificationWindow.hxx>
 #include <AzToolsFramework/Entity/EditorEntityContextBus.h>
-#include <AzCore/Slice/SliceBus.h>
-#include <AzCore/Slice/SliceComponent.h>
+#include <AzToolsFramework/Viewport/ViewportMessages.h>
 #include <LegacyEntityConversion/LegacyEntityConversionBus.h>
-
-#include <AzFramework/Asset/AssetCatalogBus.h>
-#include <AzFramework/Entity/EntityDebugDisplayBus.h>
 
 // Sandbox imports.
 #include "../Editor/ViewManager.h"
@@ -33,11 +37,6 @@
 
 #include <QApplication>
 #include <QPointer>
-
-#include <AzCore/std/string/conversions.h>
-
-#include <AzCore/Component/ComponentApplicationBus.h>
-
 
 /**
 * Integration of ToolsApplication behavior and Cry undo/redo and selection systems
@@ -78,17 +77,21 @@ namespace AzToolsFramework
 
 //////////////////////////////////////////////////////////////////////////
 
+AZ_PUSH_DISABLE_WARNING(4996, "-Wdeprecated-declarations")
 class SandboxIntegrationManager
     : private AzToolsFramework::ToolsApplicationEvents::Bus::Handler
     , private AzToolsFramework::EditorRequests::Bus::Handler
-    , private AzToolsFramework::EditorPickModeRequests::Bus::Handler
+    , private AzToolsFramework::EditorPickModeNotificationBus::Handler
     , private AzToolsFramework::EditorEvents::Bus::Handler
     , private AzFramework::AssetCatalogEventBus::Handler
     , private AzFramework::EntityDebugDisplayRequestBus::Handler
+    , private AzFramework::DebugDisplayRequestBus::Handler
+    , private AzFramework::DisplayContextRequestBus::Handler
     , private AzToolsFramework::EditorEntityContextNotificationBus::Handler
     , private AzToolsFramework::HyperGraphRequestBus::Handler
     , private IUndoManagerListener
     , private AZ::LegacyConversion::LegacyConversionRequestBus::Handler
+    , private AzToolsFramework::NewViewportInteractionModelEnabledRequestBus::Handler
 {
 public:
 
@@ -96,6 +99,7 @@ public:
     ~SandboxIntegrationManager();
 
     void Setup();
+    void Teardown();
 
 private:
 
@@ -120,16 +124,16 @@ private:
     // AzToolsFramework::EditorRequests::Bus::Handler overrides
     void RegisterViewPane(const char* name, const char* category, const AzToolsFramework::ViewPaneOptions& viewOptions, const WidgetCreationFunc& widgetCreationFunc) override;
     void UnregisterViewPane(const char* name) override;
+    QWidget* GetViewPaneWidget(const char* viewPaneName) override;
     void OpenViewPane(const char* paneName) override;
     QDockWidget* InstanceViewPane(const char* paneName) override;
     void CloseViewPane(const char* paneName) override;
     void BrowseForAssets(AzToolsFramework::AssetBrowser::AssetSelectionModel& selection) override;
     void GenerateAllCubemaps() override;
     void GenerateCubemapForEntity(AZ::EntityId entityId, AZStd::string* cubemapOutputPath, bool hideEntity) override;
-    void HandleObjectModeSelection(const AZ::Vector2& point, int flags, bool& handled) override;    
+    void GenerateCubemapWithIDForEntity(AZ::EntityId entityId, AZ::Uuid cubemapId, AZStd::string* cubemapOutputPath, bool hideEntity, bool hasCubemapId) override;
+    void HandleObjectModeSelection(const AZ::Vector2& point, int flags, bool& handled) override;
     void UpdateObjectModeCursor(AZ::u32& cursorId, AZStd::string& cursorStr) override;
-    void StartObjectPickMode() override;
-    void StopObjectPickMode() override;
     void CreateEditorRepresentation(AZ::Entity* entity) override;
     bool DestroyEditorRepresentation(AZ::EntityId entityId, bool deleteAZEntity) override;
     void CloneSelection(bool& handled) override;
@@ -149,7 +153,7 @@ private:
     AZStd::string GetLevelName() override;
     AZStd::string SelectResource(const AZStd::string& resourceType, const AZStd::string& previousValue) override;
     void GenerateNavigationArea(const AZStd::string& name, const AZ::Vector3& position, const AZ::Vector3* points, size_t numPoints, float height) override;
-    virtual const char* GetDefaultAgentNavigationTypeName() override;
+    const char* GetDefaultAgentNavigationTypeName() override;
     float CalculateAgentNavigationRadius(const char* agentTypeName) override;
     void OpenPinnedInspector(const AzToolsFramework::EntityIdList& entities) override;
     void ClosePinnedInspector(AzToolsFramework::EntityPropertyEditor* editor) override;
@@ -160,8 +164,13 @@ private:
     AZ::Vector3 GetWorldPositionAtViewportCenter() override;
     void InstantiateSliceFromAssetId(const AZ::Data::AssetId& assetId) override;
     void ClearRedoStack() override;
-
+    int GetIconTextureIdFromEntityIconPath(const AZStd::string& entityIconPath) override;
+    bool DisplayHelpersVisible() override;
     //////////////////////////////////////////////////////////////////////////
+
+    // EditorPickModeNotificationBus
+    void OnEntityPickModeStarted() override;
+    void OnEntityPickModeStopped() override;
 
     //////////////////////////////////////////////////////////////////////////
     // AzToolsFramework::EditorEvents::Bus::Handler overrides
@@ -173,7 +182,7 @@ private:
     void OnContextReset() override;
     void OnSliceInstantiated(
         const AZ::Data::AssetId& sliceAssetId,
-        const AZ::SliceComponent::SliceInstanceAddress& sliceAddress,
+        AZ::SliceComponent::SliceInstanceAddress& sliceAddress,
         const AzFramework::SliceInstantiationTicket& ticket) override;
     //////////////////////////////////////////////////////////////////////////
 
@@ -190,8 +199,7 @@ private:
     void BuildSerializedFlowGraph(IFlowGraph* flowGraph, LmbrCentral::SerializedFlowGraph& graphData) override;
     //////////////////////////////////////////////////////////////////////////
 
-    //////////////////////////////////////////////////////////////////////////
-    // AzToolsFramework::EditorRequests::Bus::Handler overrides
+    // AzToolsFramework::DebugDisplayRequestBus (and @deprecated EntityDebugDisplayRequestBus)
     void SetColor(float r, float g, float b, float a) override;
     void SetColor(const AZ::Color& color) override;
     void SetColor(const AZ::Vector4& color) override;
@@ -233,6 +241,7 @@ private:
     void Draw2dTextLabel(float x, float y, float size, const char* text, bool bCenter) override;
     void DrawTextOn2DBox(const AZ::Vector3& pos, const char* text, float textScale, const AZ::Vector4& TextColor, const AZ::Vector4& TextBackColor) override;
     void DrawTextureLabel(ITexture* texture, const AZ::Vector3& pos, float sizeX, float sizeY, int texIconFlags) override;
+    void DrawTextureLabel(int textureId, const AZ::Vector3& pos, float sizeX, float sizeY, int texIconFlags) override;
     void SetLineWidth(float width) override;
     bool IsVisible(const AZ::Aabb& bounds) override;
     int SetFillMode(int nFillMode) override;
@@ -251,15 +260,21 @@ private:
     AZ::u32 ClearStateFlag(AZ::u32 state) override;
     void PushMatrix(const AZ::Transform& tm) override;
     void PopMatrix() override;
+
+    // AzFramework::DisplayContextRequestBus (and @deprecated EntityDebugDisplayRequestBus)
     void SetDC(DisplayContext* dc) override;
-    //////////////////////////////////////////////////////////////////////////
+    DisplayContext* GetDC() override;
 
     //////////////////////////////////////////////////////////////////////////
     // AZ::LegacyConversion::LegacyConversionRequestBus::Handler 
     AZ::Outcome<AZ::Entity*, AZ::LegacyConversion::CreateEntityResult> CreateConvertedEntity(CBaseObject* sourceObject, bool failIfParentNotFound, const AZ::ComponentTypeList& componentsToAdd) override;
     AZ::EntityId FindCreatedEntity(const AZ::Uuid& sourceObjectUUID, const char* sourceObjectName) override;
     AZ::EntityId FindCreatedEntityByExistingObject(const CBaseObject* sourceObject) override;
+    bool CreateSurfaceTypeMaterialLibrary(const AZStd::string& targetFilePath) override;
     //////////////////////////////////////////////////////////////////////////
+
+    // NewViewportInteractionModelEnabledRequestBus
+    bool IsNewViewportInteractionModelEnabled() override;
 
     // Context menu handlers.
     void ContextMenu_NewEntity();
@@ -362,10 +377,11 @@ private:
     // Tracks new entities that have not yet been saved.
     AZStd::unordered_set<AZ::EntityId> m_unsavedEntities;
 
-    const AZStd::string m_defaultComponentIconLocation = "Editor/Icons/Components/Component_Placeholder.png";
+    const AZStd::string m_defaultComponentIconLocation = "Editor/Icons/Components/Component_Placeholder.svg";
     const AZStd::string m_defaultComponentViewportIconLocation = "Editor/Icons/Components/Viewport/Component_Placeholder.png";
     const AZStd::string m_defaultEntityIconLocation = "Editor/Icons/Components/Viewport/Transform.png";
 };
+AZ_POP_DISABLE_WARNING
 
 //////////////////////////////////////////////////////////////////////////
 class CToolsApplicationUndoLink

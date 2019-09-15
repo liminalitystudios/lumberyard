@@ -66,6 +66,12 @@ namespace AzToolsFramework
         /// \return a new entity
         virtual AZ::Entity* CreateEditorEntity(const char* name) = 0;
 
+        /// Creates an entity in the editor context.
+        /// \param name The name to give the newly created entity.
+        /// \param entityId The entity ID to create the new entity with.
+        /// \return a new entity
+        virtual AZ::Entity* CreateEditorEntityWithId(const char* name, const AZ::EntityId& entityId) = 0;
+
         /// Registers an existing entity with the editor context.
         virtual void AddEditorEntity(AZ::Entity* entity) = 0;
 
@@ -224,7 +230,7 @@ namespace AzToolsFramework
         virtual void OnContextReset() {}
 
         /// Fired when a slice has been successfully instantiated.
-        virtual void OnSliceInstantiated(const AZ::Data::AssetId& /*sliceAssetId*/, const AZ::SliceComponent::SliceInstanceAddress& /*sliceAddress*/, const AzFramework::SliceInstantiationTicket& /*ticket*/) {}
+        virtual void OnSliceInstantiated(const AZ::Data::AssetId& /*sliceAssetId*/, AZ::SliceComponent::SliceInstanceAddress& /*sliceAddress*/, const AzFramework::SliceInstantiationTicket& /*ticket*/) {}
 
         /// Fired when a slice has failed to instantiate.
         virtual void OnSliceInstantiationFailed(const AZ::Data::AssetId& /*sliceAssetId*/, const AzFramework::SliceInstantiationTicket& /*ticket*/) {}
@@ -232,6 +238,9 @@ namespace AzToolsFramework
         // When a slice is created , the editor entities are replaced by an instance of the slice, this notification
         // sends a map from the old Entity id's to the new Entity id's
         virtual void OnEditorEntitiesReplacedBySlicedEntities(const AZStd::unordered_map<AZ::EntityId, AZ::EntityId>& /*replacedEntitiesMap*/) {}
+
+        //Fired when an entity is duplicated. newEntity is the new duplicate of oldEntity
+        virtual void OnEditorEntityDuplicated(const AZ::EntityId& /*oldEntity*/, const AZ::EntityId& /*newEntity*/) {}
 
         /// Fired when an group of entities has slice ownership change.
         /// This should only be fired if all of the entities now belong to the same slice or all now belong to no slice

@@ -15,21 +15,29 @@
 #include "FavoriteDataModel.h"
 #include "ComponentSliceFavoritesWindow.h"
 
+#include <AzCore/Asset/AssetManager.h>
 #include <AzCore/IO/SystemFile.h>
 #include <AzCore/Slice/SliceAsset.h>
 #include <AzCore/XML/rapidxml_print.h>
+#include <AzCore/Asset/AssetManager.h>
 
 #include <AzFramework/StringFunc/StringFunc.h>
 #include <AzFramework/API/BootstrapReaderBus.h>
 
-#include <AzToolsFramework/AssetBrowser/AssetBrowserEntry.h>
+#include <AzQtComponents/DragAndDrop/ViewportDragAndDrop.h>
+
 #include <AzToolsFramework/API/ViewPaneOptions.h>
 #include <AzToolsFramework/AssetBrowser/AssetBrowserEntry.h>
+#include <AzToolsFramework/Entity/EditorEntityContextBus.h>
+#include <AzToolsFramework/Metrics/LyEditorMetricsBus.h>
+#include <AzToolsFramework/ToolsComponents/TransformComponent.h>
 
+#include <QDragEnterEvent>
+#include <QDragLeaveEvent>
+#include <QDragMoveEvent>
+#include <QDropEvent>
 #include <QMimeData>
 #include <QMessageBox>
-
-//#pragma optimize("", off)
 
 namespace SliceFavorites
 {
@@ -38,6 +46,7 @@ namespace SliceFavorites
     static const char* const FavoriteDataXMLTag = "FavoriteData";
     static const char* const NameXMLTag = "FavoriteDataName";
     static const char* const TypeXMLTag = "FavoriteDataType";
+    static const char* const SubTypeXMLTag = "FavoriteDataSubType";
     static const char* const AssetIdXMLTag = "FavoriteDataAssetId";
 
     static const char* const ManageSliceFavorites = "Slice Favorites";
@@ -47,7 +56,24 @@ namespace SliceFavorites
         Reset();
     }
 
-    int FavoriteData::LoadFromXML(AZ::rapidxml::xml_node<char>* node)
+    bool FavoriteData::IsAssetUnique(AZ::Data::AssetId assetId, const FavoriteData* root)
+    {
+        if (root->m_assetId == assetId)
+        {
+            return false;
+        }
+
+        for (auto favoriteData : root->m_children)
+        {
+            if (favoriteData->m_assetId == assetId || !IsAssetUnique(assetId, favoriteData))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    int FavoriteData::LoadFromXML(AZ::rapidxml::xml_node<char>* node, const FavoriteData* root)
     {
         int numFavoritesLoaded = 0;
 
@@ -57,21 +83,32 @@ namespace SliceFavorites
             {
                 // We have a child!
                 FavoriteData* childData = new FavoriteData();
-                numFavoritesLoaded += childData->LoadFromXML(childNode);
-                m_children.push_back(childData);
+                int numLoaded = childData->LoadFromXML(childNode, root);
+                if (numLoaded)
+                {
+                    numFavoritesLoaded += numLoaded;
+                    m_children.push_back(childData);
+                }
             }
             else if (!azstricmp(childNode->name(), NameXMLTag))
             {
                 m_name = childNode->value();
-                numFavoritesLoaded++;
             }
             else if (!azstricmp(childNode->name(), TypeXMLTag))
             {
-                m_type = (FavoriteData::FavoriteType)atoi(childNode->value());
+                m_type = static_cast<FavoriteData::FavoriteType>(atoi(childNode->value()));
             }
             else if (!azstricmp(childNode->name(), AssetIdXMLTag))
             {
                 m_assetId = AZ::Data::AssetId::CreateString(childNode->value());
+                if (IsAssetUnique(m_assetId, root))
+                {
+                    ++numFavoritesLoaded;
+                }
+            }
+            else if (!azstricmp(childNode->name(), SubTypeXMLTag))
+            {
+                m_subType = static_cast<FavoriteData::FavoriteSubType>(atoi(childNode->value()));
             }
         }
 
@@ -91,6 +128,11 @@ namespace SliceFavorites
         value = xmlDoc->allocate_string(typeString.c_str());
         AZ::rapidxml::xml_node<char>* typeNode = xmlDoc->allocate_node(AZ::rapidxml::node_element, TypeXMLTag, value);
         node->append_node(typeNode);
+
+        AZStd::string subTypeString = AZStd::string::format("%d", (int)m_subType);
+        value = xmlDoc->allocate_string(subTypeString.c_str());
+        AZ::rapidxml::xml_node<char>* subTypeNode = xmlDoc->allocate_node(AZ::rapidxml::node_element, SubTypeXMLTag, value);
+        node->append_node(subTypeNode);
 
         AZStd::string assetIdString;
         m_assetId.ToString(assetIdString);
@@ -161,7 +203,14 @@ namespace SliceFavorites
                 }
                 else if (m_type == DataType_Favorite)
                 {
-                    return QIcon(":/Icons/SliceFavorite_Icon_Favorite");
+                    if (m_subType == DynamicSlice)
+                    {
+                        return QIcon(":Icons/SliceFavorite_Icon_DynamicFavorite");
+                    }
+                    else
+                    {
+                        return QIcon(":/Icons/SliceFavorite_Icon_Favorite");
+                    }
                 }
                 break;
             }
@@ -169,9 +218,32 @@ namespace SliceFavorites
             {
                 return m_name;
             }
+            case Qt::ToolTipRole:
+            {
+                return GenerateTooltip();
+            }
         }
 
         return QVariant();
+    }
+
+    QString FavoriteData::GenerateTooltip() const
+    {
+        if (m_type == DataType_Favorite)
+        {
+            using namespace AzToolsFramework::AssetBrowser;
+            ProductAssetBrowserEntry* product = ProductAssetBrowserEntry::GetProductByAssetId(m_assetId);
+            if (product)
+            {
+                return QObject::tr(product->GetRelativePath().c_str());
+            }
+            else
+            {
+                return QObject::tr("<slice not found>");
+            }
+        }
+
+        return QObject::tr("");
     }
 
     int FavoriteData::GetNumFoldersInHierarchy() const
@@ -209,11 +281,11 @@ namespace SliceFavorites
         m_rootItem = AZStd::make_unique<FavoriteData>(FavoriteData::DataType_Folder);
         m_favoritesMenu = AZStd::make_unique<QMenu>(QObject::tr("Slice favorites"));
 
-        SetupModelData();
-
         AzToolsFramework::EditorEvents::Bus::Handler::BusConnect();
         AzToolsFramework::AssetBrowser::AssetBrowserInteractionNotificationBus::Handler::BusConnect();
         AzFramework::AssetCatalogEventBus::Handler::BusConnect();
+        AzQtComponents::DragAndDropEventsBus::Handler::BusConnect(AzQtComponents::DragAndDropContexts::EditorViewport);
+        AzToolsFramework::AssetBrowser::AssetBrowserComponentNotificationBus::Handler::BusConnect();
     }
 
     FavoriteDataModel::~FavoriteDataModel()
@@ -221,6 +293,8 @@ namespace SliceFavorites
         AzToolsFramework::EditorEvents::Bus::Handler::BusDisconnect();
         AzToolsFramework::AssetBrowser::AssetBrowserInteractionNotificationBus::Handler::BusDisconnect();
         AzFramework::AssetCatalogEventBus::Handler::BusDisconnect();
+        AzQtComponents::DragAndDropEventsBus::Handler::BusDisconnect();
+        AzToolsFramework::AssetBrowser::AssetBrowserComponentNotificationBus::Handler::BusDisconnect();
 
         AzToolsFramework::UnregisterViewPane(SliceFavorites::ManageSliceFavorites);
     }
@@ -341,11 +415,6 @@ namespace SliceFavorites
         return 1;
     }
 
-    void FavoriteDataModel::SetupModelData()
-    {
-        LoadFavorites();
-    }
-
     void FavoriteDataModel::LoadFavorites()
     {
         if (!m_rootItem)
@@ -422,6 +491,7 @@ namespace SliceFavorites
             settings.setValue("assetId", assetIdString.c_str());
 
             settings.setValue("type", current->m_type);
+            settings.setValue("subType", current->m_subType);
 
             if (current->m_type == FavoriteData::DataType_Folder && current->m_children.size() > 0)
             {
@@ -450,10 +520,17 @@ namespace SliceFavorites
             current->m_assetId = AZ::Data::AssetId::CreateString(assetIdString.toUtf8().data());
 
             current->m_type = (FavoriteData::FavoriteType)settings.value("type").toInt();
+            current->m_subType = (FavoriteData::FavoriteSubType)settings.value("subType").toInt();
 
+            // Check if asset still exists
+            AZ::Data::AssetInfo checkAsset;
+            AZ::Data::AssetCatalogRequestBus::BroadcastResult(checkAsset, &AZ::Data::AssetCatalogRequests::GetAssetInfoById, current->m_assetId);
             if (current->m_type == FavoriteData::DataType_Favorite)
             {
-                m_favoriteMap.insert(AZStd::make_pair(assetIdString.toUtf8().data(), current));
+                if (checkAsset.m_sizeBytes > 0)
+                {
+                    m_favoriteMap.insert(AZStd::make_pair(assetIdString.toUtf8().data(), current));
+                }
             }
 
             if (current->m_type == FavoriteData::DataType_Folder)
@@ -461,7 +538,10 @@ namespace SliceFavorites
                 ReadChildren(settings, current->m_children);
             }
 
-            currentList.push_back(current);
+            if (checkAsset.m_sizeBytes > 0)
+            {
+                currentList.push_back(current);
+            }
         }
 
         settings.endArray();
@@ -648,7 +728,8 @@ namespace SliceFavorites
         // These automatically get added at the end of the root list
         AZStd::string fileName;
         AzFramework::StringFunc::Path::GetFileName(product->GetName().c_str(), fileName);
-        FavoriteData* newFavorite = new FavoriteData(QObject::tr(fileName.c_str()), product->GetAssetId());
+        FavoriteData::FavoriteSubType subType = (product->GetAssetType() == AZ::AzTypeInfo<AZ::DynamicSliceAsset>::Uuid()) ? FavoriteData::FavoriteSubType::DynamicSlice : FavoriteData::FavoriteSubType::Slice;
+        FavoriteData* newFavorite = new FavoriteData(QObject::tr(fileName.c_str()), product->GetAssetId(), FavoriteData::FavoriteType::DataType_Favorite, subType);
         newFavorite->m_parent = parentData;
         parentData->m_children.push_back(newFavorite);
 
@@ -853,7 +934,8 @@ namespace SliceFavorites
                     quintptr address = (quintptr)item;
                     mimeVector.push_back(QString::number(address));
 
-                    if (item->m_type == FavoriteData::DataType_Favorite)
+                    // Only add the product as mime data if there is only one
+                    if (item->m_type == FavoriteData::DataType_Favorite && indexes.size() == 1)
                     {
                         using namespace AzToolsFramework::AssetBrowser;
                         ProductAssetBrowserEntry* product = ProductAssetBrowserEntry::GetProductByAssetId(item->m_assetId);
@@ -1280,8 +1362,12 @@ namespace SliceFavorites
                 if (!azstricmp(childNode->name(), FavoriteDataXMLTag))
                 {
                     FavoriteData* newFavorite = new FavoriteData();
-                    numFavoritesImported += newFavorite->LoadFromXML(childNode);
-                    m_rootItem->m_children.push_back(newFavorite);
+                    int numFavorites = newFavorite->LoadFromXML(childNode, m_rootItem.get());
+                    if (numFavorites)
+                    {
+                        numFavoritesImported += numFavorites;
+                        m_rootItem->m_children.push_back(newFavorite);
+                    }
                 }
             }
 
@@ -1325,15 +1411,16 @@ namespace SliceFavorites
         }
     }
 
+    void FavoriteDataModel::OnAssetBrowserComponentReady()
+    {
+        LoadFavorites();
+    }
+
     void FavoriteDataModel::RemoveFavorite(const AZ::Data::AssetId& assetId)
     {
-        AZStd::string assetIdString;
-        assetId.ToString(assetIdString);
-
-        auto& foundIt = m_favoriteMap.find(assetIdString);
-        if (foundIt != m_favoriteMap.end())
+        FavoriteData* data = GetFavoriteDataFromAssetId(assetId);
+        if (data)
         {
-            FavoriteData* data = foundIt->second;
             RemoveFavorite(data);
             delete data;
 
@@ -1341,6 +1428,106 @@ namespace SliceFavorites
         }
     }
 
+    FavoriteData* FavoriteDataModel::GetFavoriteDataFromAssetId(const AZ::Data::AssetId& assetId) const
+    {
+        AZStd::string assetIdString;
+        assetId.ToString(assetIdString);
+
+        auto& foundIt = m_favoriteMap.find(assetIdString);
+        if (foundIt != m_favoriteMap.end())
+        {
+            return foundIt->second;
+        }
+
+        return nullptr;
+    }
+
+    void FavoriteDataModel::DragEnter(QDragEnterEvent* event, AzQtComponents::DragAndDropContextBase& context)
+    {
+        if (CanAcceptDragAndDropEvent(event, context))
+        {
+            event->setDropAction(Qt::CopyAction);
+            event->setAccepted(true);
+        }
+    }
+
+    void FavoriteDataModel::DragMove(QDragMoveEvent* event, AzQtComponents::DragAndDropContextBase& context)
+    {
+        if (CanAcceptDragAndDropEvent(event, context))
+        {
+            event->setDropAction(Qt::CopyAction);
+            event->setAccepted(true);
+        }
+    }
+
+    void FavoriteDataModel::DragLeave(QDragLeaveEvent* /*event*/)
+    {
+        // opportunities to show ghosted entities or previews here.
+    }
+
+    void FavoriteDataModel::Drop(QDropEvent* event, AzQtComponents::DragAndDropContextBase& context)
+    {
+        using namespace AzQtComponents;
+
+        // ALWAYS CHECK - you are not the only one connected to this bus, and someone else may have already
+        // handled the event or accepted the drop - it might not contain types relevant to you.
+        // you still get informed about the drop event in case you did some stuff in your gui and need to clean it up.
+        if (!CanAcceptDragAndDropEvent(event, context))
+        {
+            return;
+        }
+        // The call for CanAcceptDragAndDropEvent checks for all possible early out criteria (invalid context type,
+        // event already accepted by another listener, there is no mimedata, etc)
+
+        ViewportDragContext* viewportDragContext = azrtti_cast<ViewportDragContext*>(&context);
+
+        event->setDropAction(Qt::CopyAction);
+        event->setAccepted(true);
+
+        QList<FavoriteData*> mimeList;
+        GetSelectedIndicesFromMimeData(mimeList, event->mimeData()->data(FavoriteData::GetMimeType()));
+
+        const AZ::Transform worldTransform = AZ::Transform::CreateTranslation(viewportDragContext->m_hitLocation);
+
+        // make a scoped undo that covers the ENTIRE operation.
+        AzToolsFramework::ScopedUndoBatch undo("Instantiate slices from slice favorites");
+        
+        for (FavoriteData* favorite : mimeList)
+        {
+            // Handle instantiation of slices.
+            if (favorite->m_type == FavoriteData::FavoriteType::DataType_Favorite && favorite->m_subType != FavoriteData::FavoriteSubType::DynamicSlice)
+            {
+                // Instantiate the slice at the specified location.
+                AZ::Data::Asset<AZ::SliceAsset> asset = AZ::Data::AssetManager::Instance().GetAsset<AZ::SliceAsset>(favorite->m_assetId, false);
+                if (asset)
+                {
+                    AzFramework::SliceInstantiationTicket spawnTicket;
+
+                    AzToolsFramework::EditorMetricsEventsBusAction editorMetricsEventsBusActionWrapper(AzToolsFramework::EditorMetricsEventsBusTraits::NavigationTrigger::DragAndDrop);
+                    AZStd::string idString;
+                    asset.GetId().ToString(idString);
+                    AzToolsFramework::EditorMetricsEventsBus::Broadcast(&AzToolsFramework::EditorMetricsEventsBusTraits::SliceInstantiated, AZ::Crc32(idString.c_str()));
+
+                    AzToolsFramework::EditorEntityContextRequestBus::BroadcastResult(spawnTicket, &AzToolsFramework::EditorEntityContextRequests::InstantiateEditorSlice, asset, worldTransform);
+                }
+            }
+        }
+    }
+
+    bool FavoriteDataModel::CanAcceptDragAndDropEvent(QDropEvent* event, AzQtComponents::DragAndDropContextBase& context) const
+    {
+        using namespace AzQtComponents;
+        using namespace AzToolsFramework;
+
+        // if a listener with a higher priority already claimed this event, do not touch it.
+        ViewportDragContext* viewportDragContext = azrtti_cast<ViewportDragContext*>(&context);
+        if ((!event) || (!event->mimeData()) || (event->isAccepted()) || (!viewportDragContext))
+        {
+            return false;
+        }
+
+        return event->mimeData()->hasFormat(FavoriteData::GetMimeType());
+    }
 }
 
 #include <Source\FavoriteDataModel.moc>

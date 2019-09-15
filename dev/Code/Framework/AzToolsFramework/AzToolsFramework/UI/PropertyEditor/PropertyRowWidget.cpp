@@ -13,13 +13,19 @@
 #include "PropertyRowWidget.hxx"
 #include "PropertyQTConstants.h"
 
-#include <AzQtComponents/Components/Widgets/ElidingLabel.h>
 #include <AzFramework/StringFunc/StringFunc.h>
+#include <AzToolsFramework/UI/UiCore/WidgetHelpers.h>
 #include <QtWidgets/QHBoxLayout>
 #include <QtWidgets/QWidget>
 #include <QtGui/QFontMetrics>
+AZ_PUSH_DISABLE_WARNING(4244 4251 4800, "-Wunknown-warning-option") // 4244: conversion from 'int' to 'float', possible loss of data
+                                                                    // 4251: 'QInputEvent::modState': class 'QFlags<Qt::KeyboardModifier>' needs to have dll-interface to be used by clients of class 'QInputEvent'
+                                                                    // 4800: QTextEngine *const ': forcing value to bool 'true' or 'false' (performance warning)
 #include <QtGui/QTextLayout>
 #include <QtGui/QPainter>
+AZ_POP_DISABLE_WARNING
+
+#include <QMessageBox>
 
 namespace AzToolsFramework
 {
@@ -160,7 +166,7 @@ namespace AzToolsFramework
 
     void PropertyRowWidget::createContainerButtons()
     {
-        static QIcon s_iconClear(":/PropertyEditor/Resources/cross-circle-small.png");
+        static QIcon s_iconClear(":/PropertyEditor/Resources/trash-small.png");
         static QIcon s_iconAdd(":/PropertyEditor/Resources/list-add-small.png");
 
         if (!m_containerClearButton)
@@ -219,8 +225,6 @@ namespace AzToolsFramework
 
         if (dataNode)
         {
-            AZ_Assert(dataNode->GetClassMetadata(), "Missing class data from data node.");
-
             actualName = GetNodeDisplayName(*dataNode);
         }
 
@@ -238,7 +242,7 @@ namespace AzToolsFramework
         m_isFixedSizeOrSmartPtrContainer = false;
         m_containerSize = 0;
 
-        auto* container = dataNode ? dataNode->GetClassMetadata()->m_container : nullptr;
+        auto* container = (dataNode && dataNode->GetClassMetadata()) ? dataNode->GetClassMetadata()->m_container : nullptr;
         if (container)
         {
             m_isContainer = true;
@@ -262,7 +266,11 @@ namespace AzToolsFramework
 
         if (dataNode)
         {
-            const AZ::Uuid typeUuid = dataNode->GetClassMetadata()->m_typeId;
+            AZ::Uuid typeUuid = AZ::Uuid::CreateNull();
+            if (dataNode->GetClassMetadata())
+            {
+                typeUuid = dataNode->GetClassMetadata()->m_typeId;
+            }
 
             m_handlerName = AZ_CRC("Default", 0xe35e00df);
 
@@ -437,6 +445,8 @@ namespace AzToolsFramework
 
     void PropertyRowWidget::OnValuesUpdated()
     {
+        AZ_PROFILE_FUNCTION(AZ::Debug::ProfileCategory::AzToolsFramework);
+
         if (m_sourceNode)
         {
             bool showAsOverridden = false;
@@ -671,8 +681,16 @@ namespace AzToolsFramework
                 {
                     if (editData->m_attributes[i].second->m_describesChildren)
                     {
-                        PropertyAttributeReader reader(containerParentNode->FirstInstance(), editData->m_attributes[i].second);
-                        ConsumeAttribute(editData->m_attributes[i].first, reader, true);
+                        if (editData->m_attributes[i].second->m_childClassOwned)
+                        {
+                            PropertyAttributeReader reader(m_sourceNode->FirstInstance(), editData->m_attributes[i].second);
+                            ConsumeAttribute(editData->m_attributes[i].first, reader, true);
+                        }
+                        else
+                        {
+                            PropertyAttributeReader reader(containerParentNode->FirstInstance(), editData->m_attributes[i].second);
+                            ConsumeAttribute(editData->m_attributes[i].first, reader, true);
+                        }
                     }
                 }
             }
@@ -692,14 +710,14 @@ namespace AzToolsFramework
             {
                 for (size_t i = 0; i < attributes.size(); ++i)
                 {
-                    const AZ::Edit::AttributePair& attrPair = attributes[i];
+                    const auto& attrPair = attributes[i];
 
                     if (attrPair.second->m_describesChildren)
                     {
                         continue;
                     }
 
-                    PropertyAttributeReader reader(m_sourceNode->GetParent()->FirstInstance(), attrPair.second);
+                    PropertyAttributeReader reader(m_sourceNode->GetParent()->FirstInstance(), &*attrPair.second);
                     ConsumeAttribute(attrPair.first, reader, initial, &newToolTip, &foundDescription);
                 }
             };
@@ -911,6 +929,11 @@ namespace AzToolsFramework
             m_autoExpand = true;
             reader.Read<bool>(m_autoExpand);
         }
+        else if (attributeName == AZ::Edit::Attributes::ForceAutoExpand)
+        {
+            m_forceAutoExpand = false; // Does not always expand by default
+            reader.Read<bool>(m_forceAutoExpand);
+        }
         // Attribute types you are NOT allowed to update at runtime
         else if ((initial) && (attributeName == AZ::Edit::Attributes::ContainerCanBeModified))
         {
@@ -1053,11 +1076,11 @@ namespace AzToolsFramework
 
     void PropertyRowWidget::UpdateDropDownArrow()
     {
-        if ((!m_hadChildren) || (m_forbidExpansion))
+        if ((!m_hadChildren) || (m_forbidExpansion) || m_forceAutoExpand)
         {
             if (m_dropDownArrow)
             {
-            m_dropDownArrow->hide();
+                m_dropDownArrow->hide();
             }
             m_indent->changeSize((m_treeDepth * m_treeIndentation) + m_leafIndentation, 1, QSizePolicy::Fixed, QSizePolicy::Fixed);
             m_leftHandSideLayout->invalidate();
@@ -1104,6 +1127,12 @@ namespace AzToolsFramework
         return m_forbidExpansion;
     }
 
+    bool PropertyRowWidget::ForceAutoExpand() const
+    {
+        AZ_Assert(m_initialized, "You may not call ForceAutoExpand on uninitialized rows.");
+        return m_forceAutoExpand;
+    }
+
     PropertyHandlerBase* PropertyRowWidget::GetHandler() const
     {
         AZ_Assert(m_initialized, "You may not call GetHandler on uninitialized rows.");
@@ -1122,7 +1151,7 @@ namespace AzToolsFramework
         }
     }
 
-    PropertyModificationRefreshLevel PropertyRowWidget::DoPropertyNotify()
+    PropertyModificationRefreshLevel PropertyRowWidget::DoPropertyNotify(size_t optionalIndex /*= 0*/)
     {
         // Notify from this node all the way up through parents recursively.
         // Maintain the highest level of requested refresh along the way.
@@ -1183,11 +1212,22 @@ namespace AzToolsFramework
                         }
                         else
                         {
-                            // Support invoking a void handler (doesn't return a refresh level).
-                            AZ::Edit::AttributeFunction<void()>* func = azdynamic_cast<AZ::Edit::AttributeFunction<void()>*>(reader.GetAttribute());
+                            // Support invoking a void handler (either taking no parameters or an index)
+                            // (doesn't return a refresh level)
+                            AZ::Edit::AttributeFunction<void()>* func =
+                                azdynamic_cast<AZ::Edit::AttributeFunction<void()>*>(reader.GetAttribute());
+                            AZ::Edit::AttributeFunction<void(size_t)>* funcWithIndex =
+                                azdynamic_cast<AZ::Edit::AttributeFunction<void(size_t)>*>(reader.GetAttribute());
+
                             if (func)
                             {
                                 func->Invoke(nodeToNotify->GetInstance(idx));
+                            }
+                            else if (funcWithIndex)
+                            {
+                                // if a function has been provided that takes an index, use this version
+                                // passing through the index of the element being modified
+                                funcWithIndex->Invoke(nodeToNotify->GetInstance(idx), optionalIndex);
                             }
                             else
                             {
@@ -1205,7 +1245,7 @@ namespace AzToolsFramework
 
         if (m_parentRow)
         {
-            return (PropertyModificationRefreshLevel)AZStd::GetMax((int)m_parentRow->DoPropertyNotify(), (int)level);
+            return (PropertyModificationRefreshLevel)AZStd::GetMax((int)m_parentRow->DoPropertyNotify(optionalIndex), (int)level);
         }
 
         return level;
@@ -1277,11 +1317,12 @@ namespace AzToolsFramework
                     for (size_t idx = 0; idx < nodeToNotify->GetNumInstances(); ++idx)
                     {
                         PropertyAttributeReader reader(nodeToNotify->GetInstance(idx), changeValidator.m_attribute);
-                        bool valid = true;
-                        if (reader.Read<bool>(valid, valueToValidate, valueType))
+                        AZ::Outcome<void, AZStd::string> outcome;
+                        if (reader.Read<AZ::Outcome<void, AZStd::string>>(outcome, valueToValidate, valueType))
                         {
-                            if (!valid)
+                            if (!outcome.IsSuccess())
                             {
+                                QMessageBox::warning(AzToolsFramework::GetActiveWindow(), "Invalid Assignment", outcome.GetError().c_str(), QMessageBox::Ok);
                                 return false;
                             }
                         }

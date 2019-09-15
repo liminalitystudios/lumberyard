@@ -98,7 +98,7 @@ namespace ScriptCanvas
         SCRIPT_CANVAS_GENERIC_FUNCTION_NODE(GetColumn, "Math/Transform", "{B1B515E8-BAEC-4E82-8966-E91485385BCB}", "returns the column specified by the index, [0,3]", "Source", "Column");
 
         template<int t_Index>
-        AZ_INLINE void DefaultScale(Node& node) { Node::SetDefaultValuesByIndex<t_Index>::_(node, Data::One()); }
+        AZ_INLINE void DefaultScale(Node& node) { SetDefaultValuesByIndex<t_Index>::_(node, Data::One()); }
 
         AZ_INLINE Vector3Type GetRight(const TransformType& source, NumberType scale)
         {
@@ -216,7 +216,7 @@ namespace ScriptCanvas
         {
             return a * b;
         }
-        SCRIPT_CANVAS_GENERIC_FUNCTION_NODE(MultiplyByTransform, "Math/Transform", "{66C3FBB9-498E-4E96-8683-63843F28AFE9}", "returns A * B", "A", "B");
+        SCRIPT_CANVAS_GENERIC_FUNCTION_NODE_DEPRECATED(MultiplyByTransform, "Math/Transform", "{66C3FBB9-498E-4E96-8683-63843F28AFE9}", "This node is deprecated, use Multiply (*), it provides contextual type and slots", "A", "B");
 
         AZ_INLINE Vector3Type MultiplyByVector3(const TransformType& source, const Vector3Type multiplier)
         {

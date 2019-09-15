@@ -9,11 +9,11 @@
 * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 *
 */
-#ifndef AZ_UNITY_BUILD
 
 #include <AzCore/Asset/AssetManagerComponent.h>
 #include <AzCore/Serialization/SerializeContext.h>
 #include <AzCore/Serialization/EditContext.h>
+#include <AzCore/RTTI/BehaviorContext.h>
 #include <AzCore/Asset/AssetManager.h>
 #include <AzCore/Slice/SliceAssetHandler.h>
 #include <AzCore/Slice/SliceComponent.h>
@@ -117,7 +117,10 @@ namespace AZ
                     ;
             }
         }
+
+        if (BehaviorContext* behaviorContext = azrtti_cast<BehaviorContext*>(context))
+        {
+            behaviorContext->Class<Data::AssetId>();
+        }
     }
 }
-
-#endif // #ifndef AZ_UNITY_BUILD

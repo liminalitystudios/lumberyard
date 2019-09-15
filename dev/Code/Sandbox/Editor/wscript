@@ -41,8 +41,10 @@ def build(bld):
         vs_filter               = 'Sandbox',
         pch                     = 'StdAfx.cpp',
         file_list               = 'editor_core.waf_files',
-        platforms               = ['win','darwin'],
-        configurations          = ['debug', 'debug_test', 'profile', 'profile_test'],
+        platforms               = ['win', 'darwin'],
+        configurations          = ['all'],
+        exclude_monolithic      = True,
+        client_only             = True,
         use                     = ['AzToolsFramework', 'AzQtComponents'],
         uselib                  = ['QT5CORE',
                                    'QT5GUI',
@@ -84,7 +86,9 @@ def build(bld):
         darwin_file_list                    = 'editor_lib_darwin.waf_files',
         win_file_list                       = [ ],
         platforms                           = ['win', 'darwin'],
-        configurations                      = ['debug', 'debug_test', 'profile', 'profile_test'],
+        configurations                      = ['all'],
+        exclude_monolithic                  = True,
+        client_only                         = True,
         includes                            = ['.',
                                                '..',
                                                'Include',
@@ -101,7 +105,8 @@ def build(bld):
                                                bld.Path('Code/Lyzard/Modules/Projects/include'),
                                                bld.Path('Code/Lyzard/Modules/Engines/include')],
 
-        defines                             = ['DONT_BAN_STD_STRING',
+        defines                             = ['LY_BUILD={}'.format(bld.get_lumberyard_build()),
+                                               'DONT_BAN_STD_STRING',
                                                'USE_MEM_ALLOCATOR',
                                                'IS_NEW_AUDIO_BRANCH' ] + additionalDefines,
 
@@ -128,9 +133,10 @@ def build(bld):
                                                'AWS_CPP_SDK_STS',
                                                'AWS_CPP_SDK_CORE',
                                                'AWS_CPP_SDK_COGNITO_IDENTITY',
+                                               'AWS_CPP_SDK_DEVICEFARM',
                                                'AWS_CPP_SDK_MOBILEANALYTICS',
                                                'AWS_CPP_SDK_IDENTITY_MANAGEMENT',
-                                            'AWS_CPP_SDK_IDENTITY_LAMBDA',
+                                               'AWS_CPP_SDK_IDENTITY_LAMBDA',
                                                'AWS_CPP_SDK_IDENTITY_METRICS',
                                                'BOOSTPYTHON',
                                                'ZLIB'],
@@ -189,8 +195,10 @@ def build(bld):
         vs_filter                           = 'Sandbox',
         copyright_org                       = 'Amazon-CryTek',
         file_list                           = 'editor.waf_files',
-        platforms                           = ['win'],
-        configurations                      = ['debug', 'debug_test', 'profile', 'profile_test'],
+        platforms                           = ['win', 'darwin'],
+        configurations                      = ['all'],
+        exclude_monolithic                  = True,
+        client_only                         = True,
         includes                            = ['.',
                                                '..',
                                                'Include',
@@ -237,7 +245,12 @@ def build(bld):
                                                'AWS_CPP_SDK_IDENTITY_MANAGEMENT',
                                                'BOOSTPYTHON',
                                                'TIFF',
-                                               'ZLIB'
+                                               'ZLIB',
+                                               'D3D_COMPILER',
+                                               'OPENSSL',
+                                               'MSVC90',
+                                               'LUA_COMPILER',
+                                               'FFMPEG_EXE'
                                                ],
 
         use_required_gems                   = True,
@@ -247,18 +260,6 @@ def build(bld):
                                                'ExternalLyIdentity', 'ExternalLyMetrics'],
 
         langname                            = 'en-us',
-
-        win_copy_dependent_files            = [ 'Bin64/d3dx11_43.dll',
-                                                'Bin64/D3DCompiler_43.dll',
-                                                'Bin64/d3dcompiler_46.dll',
-                                                'Bin64/d3dcompiler_47.dll',
-                                                'Bin64/libeay32.dll',
-                                                'Bin64/LuaCompiler.exe',
-                                                'Bin64/ffmpeg.exe',
-                                                'Bin64/ssleay32.dll',
-                                                'Bin64/xinput1_3.dll',
-                                                'Bin64/Microsoft.VC90.CRT.manifest',  # modules inside python27.dll load VC90 CRT directly, so we need this and the msv*90.dll files
-                                                'Bin64/msvcr90.dll'],
 
         win_file_list                       = ['editor_win.waf_files'],
         win_linkflags                       = ['/SUBSYSTEM:WINDOWS'],
@@ -293,3 +294,14 @@ def build(bld):
     if tsk_gen != None:
         # Copy Resource.h for Ribbon UI
         tsk_gen.create_task('copy_outputs', tsk_gen.path.make_node('Resource.h'), bld.srcnode.make_node('Editor/UI/Resource.h') )
+
+
+def package(pkg):
+    build(pkg) # Need to call this to generate our task_generator
+    pkg.package_tool(
+        target           = 'Editor',
+        platforms        = ['darwin'],
+        configurations   = ['debug', 'profile'],
+        include_all_libs = True,
+        dir_resources    = ['qtlibs', 'EditorPlugins'],
+    )

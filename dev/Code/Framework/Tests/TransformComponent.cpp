@@ -10,12 +10,11 @@
 *
 */
 
-#include <Tests/TestTypes.h>
-
 #include <AzCore/Component/ComponentApplication.h>
 #include <AzCore/Math/Matrix3x3.h>
 #include <AzCore/Math/Random.h>
 #include <AzCore/Serialization/Utils.h>
+#include <AzCore/UnitTest/TestTypes.h>
 
 #include <AzFramework/Application/Application.h>
 #include <AzFramework/Components/TransformComponent.h>
@@ -35,7 +34,7 @@ namespace UnitTest
     {
     public:
         TransformComponentApplication()
-            : AllocatorsFixture(15, false)
+            : AllocatorsFixture()
         {
         }
 
@@ -45,6 +44,7 @@ namespace UnitTest
             AllocatorsFixture::SetUp();
             ComponentApplication::Descriptor desc;
             desc.m_useExistingAllocator = true;
+            desc.m_enableDrilling = false; // we already created a memory driller for the test (AllocatorsFixture)
 
             m_app.Start(desc);
         }
@@ -130,6 +130,8 @@ namespace UnitTest
             m_checkLocalTM = m_checkWorldTM; // we will remove the parent
             parentEntity.Deactivate();
 
+            TransformNotificationBus::Handler::BusDisconnect(childEntity.GetId());
+
             // now we should we without a parent
             childEntity.Deactivate();
         }
@@ -207,6 +209,7 @@ namespace UnitTest
             checkRemoveCount++;
             AZ_TEST_ASSERT(m_onChildRemovedCount == checkRemoveCount);
 
+            TransformNotificationBus::Handler::BusDisconnect(parentId);
             childEntity.Deactivate();
         }
 
@@ -234,9 +237,9 @@ namespace UnitTest
             AZ_TEST_ASSERT(t1.GetTranslation() == lookAtEye);
             AZ_TEST_ASSERT(t1.IsOrthogonal());
 
-            AZ_TEST_START_ASSERTTEST;
+            AZ_TEST_START_TRACE_SUPPRESSION;
             t1 = AZ::Transform::CreateLookAt(lookAtEye, lookAtEye); //degenerate direction
-            AZ_TEST_STOP_ASSERTTEST(1);
+            AZ_TEST_STOP_TRACE_SUPPRESSION(1);
             AZ_TEST_ASSERT(t1.IsOrthogonal());
             AZ_TEST_ASSERT(t1 == AZ::Transform::CreateIdentity());
 
@@ -713,7 +716,7 @@ namespace UnitTest
         TransformBus::Event(m_childId, &TransformBus::Events::SetLocalTranslation, childLocalPos);
         AZ::Vector3 expectedChildWorldPos = childLocalPos;
 
-        AZ::Vector3 parentLocalPos(65.24f, 10.65, 37.87f);
+        AZ::Vector3 parentLocalPos(65.24f, 10.65f, 37.87f);
         TransformBus::Event(m_parentId, &TransformBus::Events::SetLocalTranslation, parentLocalPos);
 
         TransformBus::Event(m_childId, &TransformBus::Events::SetParent, m_parentId);
@@ -727,7 +730,7 @@ namespace UnitTest
     {
         AZ::Vector3 expectedChildLocalPos(22.45f, 42.14f, 97.45f);
         TransformBus::Event(m_childId, &TransformBus::Events::SetLocalTranslation, expectedChildLocalPos);
-        AZ::Vector3 parentLocalPos(15.64f, 12.65, 29.87f);
+        AZ::Vector3 parentLocalPos(15.64f, 12.65f, 29.87f);
         TransformBus::Event(m_parentId, &TransformBus::Events::SetLocalTranslation, parentLocalPos);
 
         TransformBus::Event(m_childId, &TransformBus::Events::SetParentRelative, m_parentId);
@@ -741,7 +744,7 @@ namespace UnitTest
     {
         AZ::Vector3 childLocalPos(28.45f, 56.14f, 43.65f);
         TransformBus::Event(m_childId, &TransformBus::Events::SetLocalTranslation, childLocalPos);
-        AZ::Vector3 parentLocalPos(85.24f, 12.65, 33.87f);
+        AZ::Vector3 parentLocalPos(85.24f, 12.65f, 33.87f);
         TransformBus::Event(m_parentId, &TransformBus::Events::SetLocalTranslation, parentLocalPos);
 
         TransformBus::Event(m_childId, &TransformBus::Events::SetParentRelative, m_parentId);
@@ -765,7 +768,7 @@ namespace UnitTest
     {
         AZ::Vector3 childLocalPos(28.45f, 49.14f, 94.65f);
         TransformBus::Event(m_childId, &TransformBus::Events::SetLocalTranslation, childLocalPos);
-        AZ::Vector3 parentLocalPos(66.24f, 19.65, 32.87f);
+        AZ::Vector3 parentLocalPos(66.24f, 19.65f, 32.87f);
         TransformBus::Event(m_parentId, &TransformBus::Events::SetLocalTranslation, parentLocalPos);
 
         TransformBus::Event(m_childId, &TransformBus::Events::SetParent, m_parentId);
@@ -955,18 +958,18 @@ namespace UnitTest
             m_objectStreamBuffer =
                 R"DELIMITER(<ObjectStream version="1">
     <Class name="TransformComponent" field="element" version="2" type="{22B10178-39B6-4C12-BB37-77DB45FDD3B6}">
-	    <Class name="AZ::Component" field="BaseClass1" type="{EDFCB2CF-F75D-43BE-B26B-F35821B29247}">
-		    <Class name="AZ::u64" field="Id" value="18023671824091307142" type="{D6597933-47CD-4FC8-B911-63F3E2B0993A}"/>
-	    </Class>
-	    <Class name="NetBindable" field="BaseClass2" type="{80206665-D429-4703-B42E-94434F82F381}">
-		    <Class name="bool" field="m_isSyncEnabled" value="true" type="{A0CA880C-AFE4-43CB-926C-59AC48496112}"/>
-	    </Class>
-	    <Class name="EntityId" field="Parent" version="1" type="{6383F1D3-BB27-4E6B-A49A-6409B2059EAA}">
-		    <Class name="AZ::u64" field="id" value="4294967295" type="{D6597933-47CD-4FC8-B911-63F3E2B0993A}"/>
-	    </Class>
-	    <Class name="Transform" field="Transform" value="1.0000000 0.0000000 0.0000000 0.0000000 1.0000000 0.0000000 0.0000000 0.0000000 1.0000000 0.0000000 0.0000000 0.0000000" type="{5D9958E9-9F1E-4985-B532-FFFDE75FEDFD}"/>
-	    <Class name="Transform" field="LocalTransform" value="1.0000000 0.0000000 0.0000000 0.0000000 1.0000000 0.0000000 0.0000000 0.0000000 1.0000000 0.0000000 0.0000000 0.0000000" type="{5D9958E9-9F1E-4985-B532-FFFDE75FEDFD}"/>
-	    <Class name="unsigned int" field="ParentActivationTransformMode" value="0" type="{43DA906B-7DEF-4CA8-9790-854106D3F983}"/>
+        <Class name="AZ::Component" field="BaseClass1" type="{EDFCB2CF-F75D-43BE-B26B-F35821B29247}">
+            <Class name="AZ::u64" field="Id" value="18023671824091307142" type="{D6597933-47CD-4FC8-B911-63F3E2B0993A}"/>
+        </Class>
+        <Class name="NetBindable" field="BaseClass2" type="{80206665-D429-4703-B42E-94434F82F381}">
+            <Class name="bool" field="m_isSyncEnabled" value="true" type="{A0CA880C-AFE4-43CB-926C-59AC48496112}"/>
+        </Class>
+        <Class name="EntityId" field="Parent" version="1" type="{6383F1D3-BB27-4E6B-A49A-6409B2059EAA}">
+            <Class name="AZ::u64" field="id" value="4294967295" type="{D6597933-47CD-4FC8-B911-63F3E2B0993A}"/>
+        </Class>
+        <Class name="Transform" field="Transform" value="1.0000000 0.0000000 0.0000000 0.0000000 1.0000000 0.0000000 0.0000000 0.0000000 1.0000000 0.0000000 0.0000000 0.0000000" type="{5D9958E9-9F1E-4985-B532-FFFDE75FEDFD}"/>
+        <Class name="Transform" field="LocalTransform" value="1.0000000 0.0000000 0.0000000 0.0000000 1.0000000 0.0000000 0.0000000 0.0000000 1.0000000 0.0000000 0.0000000 0.0000000" type="{5D9958E9-9F1E-4985-B532-FFFDE75FEDFD}"/>
+        <Class name="unsigned int" field="ParentActivationTransformMode" value="0" type="{43DA906B-7DEF-4CA8-9790-854106D3F983}"/>
     </Class>
 </ObjectStream>)DELIMITER";
         }

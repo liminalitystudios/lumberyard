@@ -28,6 +28,7 @@
 #include <AzToolsFramework/AssetBrowser/Thumbnails/FolderThumbnail.h>
 #include <AzToolsFramework/AssetBrowser/Thumbnails/SourceThumbnail.h>
 #include <AzToolsFramework/AssetBrowser/Thumbnails/ProductThumbnail.h>
+#include <AzToolsFramework/Slice/SliceUtilities.h>
 
 #include <chrono>
 
@@ -146,9 +147,19 @@ namespace AzToolsFramework
             return m_assetBrowserModel.get();
         }
 
+        bool AssetBrowserComponent::AreEntriesReady()
+        {
+            return m_entriesReady;
+        }
+
         void AssetBrowserComponent::OnTick(float /*deltaTime*/, AZ::ScriptTimePoint /*time*/)
         {
             m_changeset->Synchronize();
+            if (!m_entriesReady)
+            {
+                m_entriesReady = true;
+                AssetBrowserComponentNotificationBus::Broadcast(&AssetBrowserComponentNotifications::OnAssetBrowserComponentReady);
+            }
         }
 
         // We listen to this bus so that a file that wasn't previously a 'source file' (just a file) can become a source file
@@ -220,7 +231,7 @@ namespace AzToolsFramework
                     return SourceFileDetails("Editor/Icons/AssetBrowser/Material_16.png");
                 }
 
-                if (AzFramework::StringFunc::Equal(extension.c_str(), ".slice"))
+                if (AzFramework::StringFunc::Equal(extension.c_str(), AzToolsFramework::SliceUtilities::GetSliceFileExtension().c_str()))
                 {
                     return SourceFileDetails("Editor/Icons/AssetBrowser/Slice_16.png");
                 }

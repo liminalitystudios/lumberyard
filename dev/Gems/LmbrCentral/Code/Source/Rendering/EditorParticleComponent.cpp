@@ -50,7 +50,7 @@ namespace LmbrCentral
 
                     ClassElement(AZ::Edit::ClassElements::EditorData, "")->
                     Attribute(AZ::Edit::Attributes::Category, "Rendering")->
-                    Attribute(AZ::Edit::Attributes::Icon, "Editor/Icons/Components/Particle.png")->
+                    Attribute(AZ::Edit::Attributes::Icon, "Editor/Icons/Components/Particle.svg")->
                     Attribute(AZ::Edit::Attributes::PrimaryAssetType, AZ::AzTypeInfo<LmbrCentral::ParticleAsset>::Uuid())->
                     Attribute(AZ::Edit::Attributes::ViewportIcon, "Editor/Icons/Components/Viewport/Particle.png")->
                     Attribute(AZ::Edit::Attributes::AutoExpand, true)->
@@ -240,7 +240,6 @@ Negative values will be ignored.\n")->
         RenderNodeRequestBus::Handler::BusConnect(m_entity->GetId());
 
         AzToolsFramework::EditorVisibilityNotificationBus::Handler::BusConnect(GetEntityId());
-        AzFramework::EntityDebugDisplayEventBus::Handler::BusConnect(GetEntityId());
         EditorParticleComponentRequestBus::Handler::BusConnect(m_entity->GetId());
     }
 
@@ -248,7 +247,6 @@ Negative values will be ignored.\n")->
     {
         EditorParticleComponentRequestBus::Handler::BusDisconnect();
         AzToolsFramework::EditorVisibilityNotificationBus::Handler::BusDisconnect();
-        AzFramework::EntityDebugDisplayEventBus::Handler::BusDisconnect();
         RenderNodeRequestBus::Handler::BusDisconnect();
 
         if (!m_libNameToLoad.empty())
@@ -271,15 +269,6 @@ Negative values will be ignored.\n")->
     float EditorParticleComponent::GetRenderNodeRequestBusOrder() const
     {
         return ParticleComponent::s_renderNodeRequestBusOrder;
-    }
-
-    void EditorParticleComponent::DisplayEntity(bool& handled)
-    {
-        // Don't draw extra visualization unless selected and there is not an emitter
-        if (!IsSelected() || m_emitter.IsCreated())
-        {
-            handled = true;
-        }
     }
 
     void EditorParticleComponent::BuildGameEntity(AZ::Entity* gameEntity)

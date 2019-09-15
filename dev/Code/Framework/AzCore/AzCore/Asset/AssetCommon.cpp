@@ -9,7 +9,6 @@
 * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 *
 */
-#ifndef AZ_UNITY_BUILD
 
 #include <AzCore/Asset/AssetCommon.h>
 #include <AzCore/Asset/AssetManager.h>
@@ -142,19 +141,19 @@ namespace AZ
         void AssetData::Release()
         {
             AZ_Assert(m_useCount > 0, "Usecount is already 0!");
+
+            AssetId assetId = m_assetId;
+            int creationToken = m_creationToken;
+            AssetType assetType = GetType();
+            bool removeFromHash = IsRegisterReadonlyAndShareable(); 
+            // default creation token implies that the asset was not created by the asset manager and therefore it cannot be in the asset map. 
+            removeFromHash = creationToken == s_defaultCreationToken ? false : removeFromHash;
+
+
             if (m_useCount.fetch_sub(1) == 1)
             {
-                RemoveFromDB();
+                AssetManager::Instance().ReleaseAsset(this, assetId, assetType, removeFromHash, creationToken);
             }
-        }
-
-        //=========================================================================
-        // RemoveFromDB
-        // [6/19/2012]
-        //=========================================================================
-        void AssetData::RemoveFromDB()
-        {
-            AssetManager::Instance().ReleaseAsset(this);
         }
 
         //=========================================================================
@@ -179,6 +178,37 @@ namespace AZ
                 AssetBusCallbacks::AssetSavedCB(),
                 AssetBusCallbacks::AssetUnloadedCB(),
                 AssetBusCallbacks::AssetErrorCB());
+        }
+
+
+        void AssetBusCallbacks::SetOnAssetReadyCallback(const AssetReadyCB& readyCB)
+        {
+            m_onAssetReadyCB = readyCB;
+        }
+
+        void AssetBusCallbacks::SetOnAssetMovedCallback(const AssetMovedCB& movedCB)
+        {
+            m_onAssetMovedCB = movedCB;
+        }
+
+        void AssetBusCallbacks::SetOnAssetReloadedCallback(const AssetReloadedCB& reloadedCB)
+        {
+            m_onAssetReloadedCB = reloadedCB;
+        }
+
+        void AssetBusCallbacks::SetOnAssetSavedCallback(const AssetSavedCB& savedCB)
+        {
+            m_onAssetSavedCB = savedCB;
+        }
+
+        void AssetBusCallbacks::SetOnAssetUnloadedCallback(const AssetUnloadedCB& unloadedCB)
+        {
+            m_onAssetUnloadedCB = unloadedCB;
+        }
+
+        void AssetBusCallbacks::SetOnAssetErrorCallback(const AssetErrorCB& errorCB)
+        {
+            m_onAssetErrorCB = errorCB;
         }
 
         //=========================================================================
@@ -263,5 +293,3 @@ namespace AZ
 
     }   // namespace Data
 }   // namespace AZ
-
-#endif // #ifndef AZ_UNITY_BUILD
